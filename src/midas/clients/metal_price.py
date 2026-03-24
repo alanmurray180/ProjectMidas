@@ -47,6 +47,8 @@ class MetalPriceClient:
         data = self._get("latest", {"base": "XAU", "currencies": currency})
         rate_key = f"XAU{currency}"
         price = data["rates"][rate_key]
+        if price and price < 1:
+            price = 1 / price
         return GoldPrice(
             timestamp=datetime.fromtimestamp(data["timestamp"]),
             currency=currency,
@@ -61,6 +63,8 @@ class MetalPriceClient:
         )
         rate_key = f"XAU{currency}"
         price = data["rates"][rate_key]
+        if price and price < 1:
+            price = 1 / price
         return GoldPrice(
             timestamp=datetime.combine(dt, datetime.min.time()),
             currency=currency,
@@ -90,7 +94,7 @@ class MetalPriceClient:
                 GoldPrice(
                     timestamp=datetime.strptime(date_str, "%Y-%m-%d"),
                     currency=currency,
-                    price=rates[rate_key],
+                    price=1 / rates[rate_key] if rates[rate_key] and rates[rate_key] < 1 else rates[rate_key],
                 )
             )
         return results
