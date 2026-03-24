@@ -4,7 +4,7 @@ API docs: https://metalpriceapi.com/documentation
 Free tier: 100 requests/month, daily granularity.
 
 NOTE: Free-tier plans may not support base=XAU.  We request base=USD and
-look up the USD→XAU rate, then invert to get the gold price per ounce.
+look up the USDXAU rate which is already the gold price per troy ounce.
 """
 
 from __future__ import annotations
@@ -21,23 +21,28 @@ from midas.models.gold import GoldPrice
 log = logging.getLogger(__name__)
 
 
-def _xau_to_usd(rates: dict, currency: str) -> float:
+def _extract_gold_price(rates: dict, currency: str) -> float:
     """Extract a gold price from an API rates dict.
 
     The API is called with base=USD (or other fiat currency) and
-    currencies=XAU, so the returned rate is "how many XAU per 1 USD"
-    — a tiny number like 0.000475.  We invert it to get the price of
-    1 troy oz in the fiat currency.
+    currencies=XAU.  The response contains two keys:
+      - {currency}XAU: gold price per troy oz (e.g. USDXAU = 4410.08)
+      - XAU: fractional XAU per unit of currency (e.g. 0.000227)
+
+    We prefer the {currency}XAU key as it is already the price.
     """
     rate_key = f"{currency}XAU"
-    rate = rates.get(rate_key)
-    if rate is None:
-        raise KeyError(f"Expected key {rate_key!r} in rates, got: {rates}")
-    if rate == 0:
-        raise ValueError(f"API returned 0 for {rate_key}")
-    # rate = XAU-per-USD, e.g. 0.000475 → price = 1/0.000475 ≈ 2105
-    price = 1.0 / rate
-    log.debug("rates[%s] = %s → gold price = %s", rate_key, rate, price)
+    price = rates.get(rate_key)
+    if price is None or price == 0:
+        # Fallback: try the "XAU" key and invert
+        xau_rate = rates.get("XAU")
+        if xau_rate and xau_rate != 0:
+            price = 1.0 / xau_rate
+            log.debug("rates[XAU] = %s → gold price = %s", xau_rate, price)
+        else:
+            raise ValueError(f"Cannot extract gold price from rates: {rates}")
+    else:
+        log.debug("rates[%s] = %s", rate_key, price)
     return price
 
 
@@ -68,7 +73,7 @@ class MetalPriceClient:
     def latest(self, currency: str = "USD") -> GoldPrice:
         """Get the latest gold spot price."""
         data = self._get("latest", {"base": currency, "currencies": "XAU"})
-        price = _xau_to_usd(data["rates"], currency)
+        price = _extract_gold_price(data["rates"], currency)
         return GoldPrice(
             timestamp=datetime.fromtimestamp(data["timestamp"]),
             currency=currency,
@@ -81,7 +86,7 @@ class MetalPriceClient:
             dt.strftime("%Y-%m-%d"),
             {"base": currency, "currencies": "XAU"},
         )
-        price = _xau_to_usd(data["rates"], currency)
+        price = _extract_gold_price(data["rates"], currency)
         return GoldPrice(
             timestamp=datetime.combine(dt, datetime.min.time()),
             currency=currency,
