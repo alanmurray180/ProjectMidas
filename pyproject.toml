@@ -11,6 +11,12 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+midas = ["templates/*.html"]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
