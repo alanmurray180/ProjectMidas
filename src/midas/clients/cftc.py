@@ -58,59 +58,76 @@ class CFTCClient:
     # Primary: Socrata JSON API
     # ------------------------------------------------------------------
 
-    def _fetch_socrata(self, limit: int = 10) -> list[dict]:
-        """Query the Socrata API for the latest gold COT rows.
-
-        Rather than filtering by year (which may return nothing if the
-        current year's data isn't published yet), we query for the most
-        recent gold rows across all years.
-        """
-        params = {
-            "$where": f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'",
-            "$order": "report_date_as_yyyy_mm_dd DESC",
-            "$limit": str(limit),
-        }
+    def _socrata_headers(self) -> dict:
+        """Build headers for Socrata requests, including app token if set."""
         headers = {**_HTTP_HEADERS}
         if CFTC_APP_TOKEN:
             headers["X-App-Token"] = CFTC_APP_TOKEN
-            log.info("Using CFTC app token for Socrata request")
-        else:
-            log.warning("No CFTC app token set (FINANCIAL_ANALYSIS_COT env var)")
-        log.info("Socrata query: %s params=%s", SOCRATA_BASE, params)
-        resp = httpx.get(
-            SOCRATA_BASE,
-            params=params,
-            headers=headers,
-            timeout=30,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        log.info("Socrata returned %d rows", len(rows))
+        return headers
 
-        # If the commodity code filter returned nothing, the field name
-        # may differ.  Try without the filter and inspect the data.
-        if not rows:
-            log.warning("No rows with cftc_commodity_code='%s'; fetching sample to inspect field names",
-                        GOLD_COMMODITY_CODE)
-            resp2 = httpx.get(
+    def _fetch_socrata(self, limit: int = 10) -> list[dict]:
+        """Query the Socrata API for the latest gold COT rows.
+
+        Tries multiple filter strategies since field names and value
+        formats can vary across Socrata dataset versions.
+        """
+        headers = self._socrata_headers()
+
+        # Strategy 1: filter by cftc_commodity_code
+        # Strategy 2: filter by market_and_exchange_names containing GOLD
+        # Strategy 3: filter by commodity_name containing GOLD
+        strategies = [
+            ("cftc_commodity_code", f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'"),
+            ("market_and_exchange_names", "market_and_exchange_names like '%GOLD%'"),
+            ("commodity_name", "commodity_name like '%GOLD%'"),
+        ]
+
+        for label, where_clause in strategies:
+            params = {
+                "$where": where_clause,
+                "$order": "report_date_as_yyyy_mm_dd DESC",
+                "$limit": str(limit),
+            }
+            log.info("Socrata query [%s]: %s", label, where_clause)
+            try:
+                resp = httpx.get(
+                    SOCRATA_BASE,
+                    params=params,
+                    headers=headers,
+                    timeout=30,
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                rows = resp.json()
+                log.info("Socrata [%s] returned %d rows", label, len(rows))
+                if rows:
+                    if log.isEnabledFor(logging.DEBUG):
+                        log.debug("Sample keys: %s", list(rows[0].keys()))
+                    return rows
+            except Exception as exc:
+                log.warning("Socrata [%s] failed: %s", label, exc)
+
+        # Last resort: fetch a single unfiltered row to log available fields
+        log.warning("All Socrata filter strategies returned 0 rows; fetching sample row")
+        try:
+            resp = httpx.get(
                 SOCRATA_BASE,
                 params={"$limit": "1"},
                 headers=headers,
                 timeout=30,
                 follow_redirects=True,
             )
-            resp2.raise_for_status()
-            sample = resp2.json()
+            resp.raise_for_status()
+            sample = resp.json()
             if sample:
                 log.warning("Sample row keys: %s", list(sample[0].keys()))
-                # Try filtering by commodity_name instead
-                for r in [sample[0]]:
-                    for k, v in r.items():
-                        if "gold" in str(v).lower() or "088691" in str(v):
-                            log.warning("Found gold reference: %s=%s", k, v)
+                for k, v in sample[0].items():
+                    if "gold" in str(v).lower() or "088691" in str(v):
+                        log.warning("Found gold reference: %s=%s", k, v)
+        except Exception as exc:
+            log.warning("Sample fetch failed: %s", exc)
 
-        return rows
+        return []
 
     def _socrata_row_to_position(self, row: dict) -> COTPosition:
         """Convert a Socrata JSON row to a COTPosition."""
