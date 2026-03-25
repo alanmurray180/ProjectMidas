@@ -58,17 +58,19 @@ class CFTCClient:
     # Primary: Socrata JSON API
     # ------------------------------------------------------------------
 
-    def _fetch_socrata(self, year: int, limit: int = 52) -> list[dict]:
-        """Query the Socrata API for gold COT rows in a given year."""
+    def _fetch_socrata(self, limit: int = 10) -> list[dict]:
+        """Query the Socrata API for the latest gold COT rows.
+
+        Rather than filtering by year (which may return nothing if the
+        current year's data isn't published yet), we query for the most
+        recent gold rows across all years.
+        """
         params = {
-            "$where": (
-                f"cftc_commodity_code='{GOLD_COMMODITY_CODE}' "
-                f"AND report_date_as_yyyy_mm_dd >= '{year}-01-01' "
-                f"AND report_date_as_yyyy_mm_dd <= '{year}-12-31'"
-            ),
+            "$where": f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'",
             "$order": "report_date_as_yyyy_mm_dd DESC",
             "$limit": str(limit),
         }
+        log.info("Socrata query: %s params=%s", SOCRATA_BASE, params)
         resp = httpx.get(
             SOCRATA_BASE,
             params=params,
@@ -78,14 +80,37 @@ class CFTCClient:
         )
         resp.raise_for_status()
         rows = resp.json()
-        log.debug("Socrata returned %d rows for year %d", len(rows), year)
+        log.info("Socrata returned %d rows", len(rows))
+
+        # If the commodity code filter returned nothing, the field name
+        # may differ.  Try without the filter and inspect the data.
+        if not rows:
+            log.warning("No rows with cftc_commodity_code='%s'; fetching sample to inspect field names",
+                        GOLD_COMMODITY_CODE)
+            resp2 = httpx.get(
+                SOCRATA_BASE,
+                params={"$limit": "1"},
+                headers=_HTTP_HEADERS,
+                timeout=30,
+                follow_redirects=True,
+            )
+            resp2.raise_for_status()
+            sample = resp2.json()
+            if sample:
+                log.warning("Sample row keys: %s", list(sample[0].keys()))
+                # Try filtering by commodity_name instead
+                for r in [sample[0]]:
+                    for k, v in r.items():
+                        if "gold" in str(v).lower() or "088691" in str(v):
+                            log.warning("Found gold reference: %s=%s", k, v)
+
         return rows
 
     def _socrata_row_to_position(self, row: dict) -> COTPosition:
         """Convert a Socrata JSON row to a COTPosition."""
-        report_date = datetime.strptime(
-            row["report_date_as_yyyy_mm_dd"][:10], "%Y-%m-%d"
-        ).date()
+        # The date field may be ISO datetime or plain date
+        date_str = row.get("report_date_as_yyyy_mm_dd", "")
+        report_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
 
         return COTPosition(
             report_date=report_date,
@@ -161,31 +186,47 @@ class CFTCClient:
     # ------------------------------------------------------------------
 
     def get_positions(self, year: int | None = None) -> list[COTPosition]:
-        """Get all weekly gold COT positions for a given year.
+        """Get weekly gold COT positions.
 
-        Tries the Socrata JSON API first, falls back to ZIP download.
+        Tries the Socrata JSON API first (latest rows regardless of year),
+        then falls back to the ZIP download for the given year and the
+        previous year.
         """
         year = year or date.today().year
 
         # Try Socrata API first (faster, more reliable)
         try:
-            rows = self._fetch_socrata(year)
+            rows = self._fetch_socrata()
             if rows:
                 positions = [self._socrata_row_to_position(r) for r in rows]
                 return sorted(positions, key=lambda p: p.report_date)
-            log.warning("Socrata returned empty results for %d", year)
+            log.warning("Socrata returned empty results")
         except Exception as exc:
             log.warning("Socrata API failed (%s), falling back to ZIP download", exc)
 
-        # Fallback: bulk ZIP download
-        df = self._download_zip(year)
-        gold_df = self._filter_gold(df)
-        positions = [self._row_to_position(row) for _, row in gold_df.iterrows()]
-        return sorted(positions, key=lambda p: p.report_date)
+        # Fallback: bulk ZIP download — try current year, then previous year
+        for try_year in [year, year - 1]:
+            try:
+                log.info("Trying ZIP download for year %d", try_year)
+                df = self._download_zip(try_year)
+                gold_df = self._filter_gold(df)
+                if gold_df.empty:
+                    log.warning("No gold rows in ZIP for %d", try_year)
+                    continue
+                positions = [self._row_to_position(row) for _, row in gold_df.iterrows()]
+                return sorted(positions, key=lambda p: p.report_date)
+            except Exception as exc:
+                log.warning("ZIP download failed for %d: %s", try_year, exc)
+
+        return []
 
     def latest_position(self, year: int | None = None) -> COTPosition:
         """Get the most recent weekly gold COT position."""
         positions = self.get_positions(year)
         if not positions:
-            raise ValueError(f"No gold COT data found for {year}")
+            raise ValueError(
+                "No gold COT data found. Both the Socrata API and CFTC ZIP "
+                "download returned no data. Check network connectivity to "
+                "publicreporting.cftc.gov and www.cftc.gov."
+            )
         return positions[-1]
