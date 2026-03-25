@@ -22,7 +22,7 @@ from datetime import date, datetime
 import httpx
 import pandas as pd
 
-from midas.config import CFTC_BASE
+from midas.config import CFTC_APP_TOKEN, CFTC_BASE
 from midas.models.gold import COTPosition
 
 log = logging.getLogger(__name__)
@@ -70,11 +70,17 @@ class CFTCClient:
             "$order": "report_date_as_yyyy_mm_dd DESC",
             "$limit": str(limit),
         }
+        headers = {**_HTTP_HEADERS}
+        if CFTC_APP_TOKEN:
+            headers["X-App-Token"] = CFTC_APP_TOKEN
+            log.info("Using CFTC app token for Socrata request")
+        else:
+            log.warning("No CFTC app token set (FINANCIAL_ANALYSIS_COT env var)")
         log.info("Socrata query: %s params=%s", SOCRATA_BASE, params)
         resp = httpx.get(
             SOCRATA_BASE,
             params=params,
-            headers=_HTTP_HEADERS,
+            headers=headers,
             timeout=30,
             follow_redirects=True,
         )
@@ -90,7 +96,7 @@ class CFTCClient:
             resp2 = httpx.get(
                 SOCRATA_BASE,
                 params={"$limit": "1"},
-                headers=_HTTP_HEADERS,
+                headers=headers,
                 timeout=30,
                 follow_redirects=True,
             )
