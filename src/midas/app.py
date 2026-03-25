@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 from flask import Flask, render_template
+
+logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, template_folder="templates")
 
@@ -44,6 +47,8 @@ def _fetch_cot_positions() -> dict | None:
             "open_interest": f"{pos.open_interest:,}",
         }
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return {"error": str(exc)}
 
 
