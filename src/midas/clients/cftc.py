@@ -34,7 +34,11 @@ class CFTCClient:
     def _download_zip(self, year: int) -> pd.DataFrame:
         """Download and unzip the disaggregated futures report for a year."""
         url = f"{self.base_url}/fut_disagg_txt_{year}.zip"
-        resp = httpx.get(url, timeout=60, follow_redirects=True)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+        resp = httpx.get(url, timeout=60, follow_redirects=True, headers=headers)
         resp.raise_for_status()
 
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
