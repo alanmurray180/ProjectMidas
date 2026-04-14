@@ -10,14 +10,13 @@ dependencies = [
     "h2>=4.0",
     "pandas>=2.0",
     "python-dotenv>=1.0",
-    "openpyxl>=3.1",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-midas = ["templates/*.html", "data/wgc/*"]
+midas = ["templates/*.html"]
 
 [project.optional-dependencies]
 dev = [

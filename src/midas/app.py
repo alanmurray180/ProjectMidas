@@ -79,32 +79,77 @@ def _fetch_etf_holdings() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_wgc_etf() -> dict | None:
+def _fetch_gold_etf_aggregate() -> dict | None:
     try:
-        from midas.clients.wgc import WGCETFClient
+        from midas.clients.major_etfs import MajorETFsClient
 
-        client = WGCETFClient()
-        data = client.get_latest()
+        data = MajorETFsClient().get_aggregate()
 
         def _fmt_num(v, decimals=1):
             if v is None:
                 return None
             return f"{v:,.{decimals}f}"
 
-        return {
-            "report_period": data.get("report_period"),
-            "global_tonnes": _fmt_num(data.get("global_tonnes"), 1),
-            "global_aum_bn": _fmt_num(data.get("global_aum_bn"), 1),
-            "regional_flows": [
+        def _fmt_tonnes(v):
+            return _fmt_num(v, 1) if v else None
+
+        def _fmt_bn(v):
+            return _fmt_num(v / 1e9, 2) if v else None
+
+        holdings = []
+        for h in data.get("holdings", []):
+            holdings.append(
                 {
-                    "region": r["region"],
-                    "flow_usd_mn": _fmt_num(r["flow_usd_mn"], 1),
-                    "positive": r["flow_usd_mn"] > 0,
+                    "ticker": h["ticker"],
+                    "name": h["name"],
+                    "region": h["region"],
+                    "tonnes": _fmt_tonnes(h.get("tonnes")),
+                    "aum_bn": _fmt_bn(h.get("market_cap_usd")),
                 }
-                for r in data.get("regional_flows", [])
-            ],
-            "source_url": data.get("source_url"),
-            "cached_at": data.get("cached_at"),
+            )
+        holdings.sort(
+            key=lambda r: float((r["tonnes"] or "0").replace(",", "")),
+            reverse=True,
+        )
+
+        by_region = [
+            {
+                "region": region,
+                "tonnes": _fmt_tonnes(bucket["tonnes"]),
+                "aum_bn": _fmt_bn(bucket["aum_usd"]),
+                "fund_count": int(bucket["fund_count"]),
+            }
+            for region, bucket in data.get("by_region", {}).items()
+        ]
+        by_region.sort(
+            key=lambda r: float((r["tonnes"] or "0").replace(",", "")),
+            reverse=True,
+        )
+
+        return {
+            "total_tonnes": _fmt_tonnes(data.get("total_tonnes")),
+            "total_aum_bn": _fmt_bn(data.get("total_aum_usd")),
+            "fund_count": data.get("fund_count"),
+            "spot_usd_per_oz": _fmt_num(data.get("spot_usd_per_oz"), 2),
+            "holdings": holdings,
+            "by_region": by_region,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _fetch_wgc_commentary() -> dict | None:
+    try:
+        from midas.clients.wgc import WGCETFClient
+
+        info = WGCETFClient().get_latest_commentary()
+        if not info:
+            return None
+        return {
+            "title": info.get("title"),
+            "description": info.get("description"),
+            "page_url": info.get("page_url"),
+            "period": info.get("period"),
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -115,12 +160,14 @@ def dashboard():
     gold_price = _fetch_gold_price()
     cot = _fetch_cot_positions()
     etf = _fetch_etf_holdings()
-    wgc = _fetch_wgc_etf()
+    aggregate = _fetch_gold_etf_aggregate()
+    wgc = _fetch_wgc_commentary()
     return render_template(
         "dashboard.html",
         gold_price=gold_price,
         cot=cot,
         etf=etf,
+        aggregate=aggregate,
         wgc=wgc,
     )
 
