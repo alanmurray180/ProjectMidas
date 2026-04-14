@@ -335,9 +335,15 @@ class WGCETFClient:
             xlsx_headers = {
                 "Referer": page_url or _GOLDHUB_LANDING,
                 "Sec-Fetch-Site": "same-origin",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Dest": "empty",
-                "Accept": "*/*",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    "image/avif,image/webp,image/apng,*/*;q=0.8,"
+                    "application/signed-exchange;v=b3;q=0.7"
+                ),
             }
             resp = client.get(xlsx_url, headers=xlsx_headers, timeout=60)
             resp.raise_for_status()
