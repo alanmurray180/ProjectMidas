@@ -1,6 +1,6 @@
 name: Mirror WGC ETF flows xlsx
 
-on:
+"on":
   schedule:
     # Mondays 14:00 UTC — WGC typically publishes weekly updates on Monday.
     - cron: '0 14 * * 1'
