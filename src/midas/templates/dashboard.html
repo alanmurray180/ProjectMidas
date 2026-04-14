@@ -203,6 +203,56 @@
       {% endif %}
     </div>
 
+    <!-- WGC Global Gold ETF Aggregate -->
+    <div class="card full-width">
+      <h2>Global Gold ETF Holdings &amp; Flows (WGC)</h2>
+      {% if wgc and not wgc.get('error') %}
+        {% if wgc.report_period %}
+          <div class="meta" style="margin-bottom: 1rem;">Report period: {{ wgc.report_period }}</div>
+        {% endif %}
+        <div class="stat-grid" style="margin-bottom: 1rem;">
+          {% if wgc.global_tonnes %}
+          <div class="stat">
+            <div class="stat-label">Total Holdings</div>
+            <div class="stat-value">{{ wgc.global_tonnes }} tonnes</div>
+          </div>
+          {% endif %}
+          {% if wgc.global_aum_bn %}
+          <div class="stat">
+            <div class="stat-label">Global AUM</div>
+            <div class="stat-value">${{ wgc.global_aum_bn }} bn</div>
+          </div>
+          {% endif %}
+        </div>
+        {% if wgc.regional_flows %}
+        <table>
+          <thead>
+            <tr><th>Region</th><th>Net Flow (USD mn)</th></tr>
+          </thead>
+          <tbody>
+            {% for r in wgc.regional_flows %}
+            <tr>
+              <td>{{ r.region }}</td>
+              <td class="{% if r.positive %}positive{% else %}negative{% endif %}" style="color: {% if r.positive %}var(--green){% else %}var(--red) {% endif %};">
+                {{ r.flow_usd_mn }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if wgc.source_url %}
+          <div class="meta" style="margin-top: 1rem;">
+            Source: <a href="{{ wgc.source_url }}" style="color: var(--gold);">WGC xlsx</a>
+          </div>
+        {% endif %}
+      {% elif wgc and wgc.get('error') %}
+        <div class="error-msg">{{ wgc.error }}</div>
+      {% else %}
+        <div class="error-msg">No data available</div>
+      {% endif %}
+    </div>
+
     <!-- ETF Price -->
     <div class="card full-width">
       <h2>{{ etf.ticker if etf and not etf.get('error') else 'GLD' }} ETF — Daily Close Price (Last 10 Sessions)</h2>
