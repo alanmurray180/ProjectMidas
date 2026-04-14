@@ -208,7 +208,14 @@
       <h2>Global Gold ETF Holdings &amp; Flows (WGC)</h2>
       {% if wgc and not wgc.get('error') %}
         {% if wgc.report_period %}
-          <div class="meta" style="margin-bottom: 1rem;">Report period: {{ wgc.report_period }}</div>
+          <div class="meta" style="margin-bottom: 1rem;">
+            Report period: {{ wgc.report_period }}
+            {% if wgc.cached_at %}
+              &middot; <span title="Served from local mirror">cached {{ wgc.cached_at }}</span>
+            {% endif %}
+          </div>
+        {% elif wgc.cached_at %}
+          <div class="meta" style="margin-bottom: 1rem;">cached {{ wgc.cached_at }}</div>
         {% endif %}
         <div class="stat-grid" style="margin-bottom: 1rem;">
           {% if wgc.global_tonnes %}
