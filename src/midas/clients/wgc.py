@@ -66,12 +66,15 @@ _BROWSER_HEADERS = {
 }
 
 _GOLDHUB_LANDING = "https://www.gold.org/goldhub"
+_GOLDHUB_ETF_HUB = (
+    "https://www.gold.org/goldhub/data/gold-etfs-holdings-and-flows"
+)
 _RESEARCH_URL = (
     "https://www.gold.org/goldhub/research/"
     "gold-etfs-holdings-and-flows/{year}/{month:02d}"
 )
 _XLSX_HREF = re.compile(
-    r'href=["\'](?P<href>[^"\']*/download/file/\d+/[^"\']*\.xlsx)["\']',
+    r'href=["\'](?P<href>[^"\']*?/download/file/\d+/[^"\']*?\.xlsx[^"\']*)["\']',
     re.IGNORECASE,
 )
 
@@ -175,6 +178,14 @@ class WGCETFClient:
             return None
 
         href = match.group("href")
+        # Diagnostic: dump context around the matched href so we can see
+        # adjacent attributes/tokens that might be needed for download.
+        start = max(0, match.start() - 200)
+        end = min(len(resp.text), match.end() + 200)
+        log.info(
+            "xlsx link context [%d..%d] on %s:\n%s",
+            start, end, url, resp.text[start:end],
+        )
         if href.startswith("/"):
             href = "https://www.gold.org" + href
         return href
@@ -210,11 +221,19 @@ class WGCETFClient:
 
     @staticmethod
     def _warm_session(client: httpx.Client) -> None:
-        try:
-            resp = client.get(_GOLDHUB_LANDING)
-            log.info("Warmed gold.org session: %d", resp.status_code)
-        except Exception as exc:
-            log.warning("Session warmup failed (continuing): %s", exc)
+        """Visit the landing page and the ETF data hub page so cookies
+        that gate /download/file/ get set."""
+        for warm_url in (_GOLDHUB_LANDING, _GOLDHUB_ETF_HUB):
+            try:
+                resp = client.get(warm_url)
+                log.info(
+                    "Warmed %s: %d (cookies now: %d)",
+                    warm_url,
+                    resp.status_code,
+                    len(client.cookies.jar),
+                )
+            except Exception as exc:
+                log.warning("Warmup %s failed (continuing): %s", warm_url, exc)
 
     # ------------------------------------------------------------------
     # Parsing the xlsx — defensive, since layouts vary
