@@ -203,22 +203,22 @@
       {% endif %}
     </div>
 
-    <!-- ETF Holdings -->
+    <!-- ETF Price -->
     <div class="card full-width">
-      <h2>GLD ETF Holdings (Last 10 Days)</h2>
+      <h2>{{ etf.ticker if etf and not etf.get('error') else 'GLD' }} ETF — Daily Close Price (Last 10 Sessions)</h2>
       {% if etf and not etf.get('error') %}
         <div style="margin-bottom: 1rem;">
-          <span class="stat-label">Latest:</span>
-          <span class="stat-value" style="font-size:1.4rem;">{{ etf.latest_tonnes }} tonnes</span>
+          <span class="stat-label">Latest close:</span>
+          <span class="stat-value" style="font-size:1.4rem;">$&thinsp;{{ etf.latest_close }}</span>
           <span class="meta">&middot; {{ etf.latest_date }}</span>
         </div>
         <table>
           <thead>
-            <tr><th>Date</th><th>Tonnes</th></tr>
+            <tr><th>Date</th><th>Close (USD)</th><th>Volume</th></tr>
           </thead>
           <tbody>
             {% for row in etf.recent %}
-            <tr><td>{{ row.date }}</td><td>{{ row.tonnes }}</td></tr>
+            <tr><td>{{ row.date }}</td><td>${{ row.close }}</td><td>{{ row.volume }}</td></tr>
             {% endfor %}
           </tbody>
         </table>

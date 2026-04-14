@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from flask import Flask, render_template
 
@@ -57,18 +57,22 @@ def _fetch_etf_holdings() -> dict | None:
         from midas.clients.etf import GoldETFClient
 
         client = GoldETFClient()
-        since = date.today() - timedelta(days=30)
-        holdings = client.get_gld_holdings(since=since)
-        if not holdings:
-            return {"error": "No holdings data available"}
-        latest = holdings[-1]
+        prices = client.get_gld_prices(days=30)
+        if not prices:
+            return {"error": "No ETF price data available"}
+        latest = prices[-1]
         rows = [
-            {"date": h.date.isoformat(), "tonnes": f"{h.tonnes:,.2f}"}
-            for h in holdings[-10:]
+            {
+                "date": p["date"].isoformat(),
+                "close": f"{p['close']:,.2f}",
+                "volume": f"{p['volume']:,}" if p.get("volume") else "—",
+            }
+            for p in prices[-10:]
         ]
         return {
-            "latest_date": latest.date.isoformat(),
-            "latest_tonnes": f"{latest.tonnes:,.2f}",
+            "ticker": "GLD",
+            "latest_date": latest["date"].isoformat(),
+            "latest_close": f"{latest['close']:,.2f}",
             "recent": rows,
         }
     except Exception as exc:
