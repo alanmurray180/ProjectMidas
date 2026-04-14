@@ -17,7 +17,7 @@ dependencies = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-midas = ["templates/*.html"]
+midas = ["templates/*.html", "data/wgc/*"]
 
 [project.optional-dependencies]
 dev = [
