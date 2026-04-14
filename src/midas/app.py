@@ -79,12 +79,49 @@ def _fetch_etf_holdings() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_wgc_etf() -> dict | None:
+    try:
+        from midas.clients.wgc import WGCETFClient
+
+        client = WGCETFClient()
+        data = client.get_latest()
+
+        def _fmt_num(v, decimals=1):
+            if v is None:
+                return None
+            return f"{v:,.{decimals}f}"
+
+        return {
+            "report_period": data.get("report_period"),
+            "global_tonnes": _fmt_num(data.get("global_tonnes"), 1),
+            "global_aum_bn": _fmt_num(data.get("global_aum_bn"), 1),
+            "regional_flows": [
+                {
+                    "region": r["region"],
+                    "flow_usd_mn": _fmt_num(r["flow_usd_mn"], 1),
+                    "positive": r["flow_usd_mn"] > 0,
+                }
+                for r in data.get("regional_flows", [])
+            ],
+            "source_url": data.get("source_url"),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.route("/")
 def dashboard():
     gold_price = _fetch_gold_price()
     cot = _fetch_cot_positions()
     etf = _fetch_etf_holdings()
-    return render_template("dashboard.html", gold_price=gold_price, cot=cot, etf=etf)
+    wgc = _fetch_wgc_etf()
+    return render_template(
+        "dashboard.html",
+        gold_price=gold_price,
+        cot=cot,
+        etf=etf,
+        wgc=wgc,
+    )
 
 
 if __name__ == "__main__":
