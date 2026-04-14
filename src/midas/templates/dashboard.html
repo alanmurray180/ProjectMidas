@@ -203,58 +203,91 @@
       {% endif %}
     </div>
 
-    <!-- WGC Global Gold ETF Aggregate -->
+    <!-- Global Gold ETF Aggregate (derived from major issuers via Yahoo) -->
     <div class="card full-width">
-      <h2>Global Gold ETF Holdings &amp; Flows (WGC)</h2>
-      {% if wgc and not wgc.get('error') %}
-        {% if wgc.report_period %}
-          <div class="meta" style="margin-bottom: 1rem;">
-            Report period: {{ wgc.report_period }}
-            {% if wgc.cached_at %}
-              &middot; <span title="Served from local mirror">cached {{ wgc.cached_at }}</span>
-            {% endif %}
-          </div>
-        {% elif wgc.cached_at %}
-          <div class="meta" style="margin-bottom: 1rem;">cached {{ wgc.cached_at }}</div>
-        {% endif %}
+      <h2>Global Gold ETFs — Aggregate Holdings</h2>
+      {% if aggregate and not aggregate.get('error') %}
+        <div class="meta" style="margin-bottom: 1rem;">
+          {{ aggregate.fund_count }} major physical-gold ETFs
+          {% if aggregate.spot_usd_per_oz %}
+            &middot; spot reference ${{ aggregate.spot_usd_per_oz }}/oz
+          {% endif %}
+        </div>
         <div class="stat-grid" style="margin-bottom: 1rem;">
-          {% if wgc.global_tonnes %}
+          {% if aggregate.total_tonnes %}
           <div class="stat">
-            <div class="stat-label">Total Holdings</div>
-            <div class="stat-value">{{ wgc.global_tonnes }} tonnes</div>
+            <div class="stat-label">Aggregate Holdings</div>
+            <div class="stat-value">{{ aggregate.total_tonnes }} tonnes</div>
           </div>
           {% endif %}
-          {% if wgc.global_aum_bn %}
+          {% if aggregate.total_aum_bn %}
           <div class="stat">
-            <div class="stat-label">Global AUM</div>
-            <div class="stat-value">${{ wgc.global_aum_bn }} bn</div>
+            <div class="stat-label">Aggregate AUM</div>
+            <div class="stat-value">${{ aggregate.total_aum_bn }} bn</div>
           </div>
           {% endif %}
         </div>
-        {% if wgc.regional_flows %}
-        <table>
+
+        {% if aggregate.by_region %}
+        <div class="stat-label" style="margin-bottom: 0.5rem;">By region</div>
+        <table style="margin-bottom: 1.2rem;">
           <thead>
-            <tr><th>Region</th><th>Net Flow (USD mn)</th></tr>
+            <tr><th>Region</th><th>Funds</th><th>Tonnes</th><th>AUM (USD bn)</th></tr>
           </thead>
           <tbody>
-            {% for r in wgc.regional_flows %}
+            {% for r in aggregate.by_region %}
             <tr>
               <td>{{ r.region }}</td>
-              <td class="{% if r.positive %}positive{% else %}negative{% endif %}" style="color: {% if r.positive %}var(--green){% else %}var(--red) {% endif %};">
-                {{ r.flow_usd_mn }}
-              </td>
+              <td>{{ r.fund_count }}</td>
+              <td>{{ r.tonnes or '—' }}</td>
+              <td>${{ r.aum_bn or '—' }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% endif %}
-        {% if wgc.source_url %}
-          <div class="meta" style="margin-top: 1rem;">
-            Source: <a href="{{ wgc.source_url }}" style="color: var(--gold);">WGC xlsx</a>
-          </div>
+
+        {% if aggregate.holdings %}
+        <div class="stat-label" style="margin-bottom: 0.5rem;">By fund</div>
+        <table>
+          <thead>
+            <tr><th>Ticker</th><th>Fund</th><th>Region</th><th>Tonnes</th><th>AUM (USD bn)</th></tr>
+          </thead>
+          <tbody>
+            {% for h in aggregate.holdings %}
+            <tr>
+              <td><strong>{{ h.ticker }}</strong></td>
+              <td>{{ h.name }}</td>
+              <td>{{ h.region }}</td>
+              <td>{{ h.tonnes or '—' }}</td>
+              <td>${{ h.aum_bn or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
         {% endif %}
-      {% elif wgc and wgc.get('error') %}
-        <div class="error-msg">{{ wgc.error }}</div>
+
+        {% if wgc and not wgc.get('error') and wgc.title %}
+        <div style="margin-top: 1.2rem; padding: 0.9rem 1rem; background: rgba(212,168,67,0.06); border-left: 3px solid var(--gold); border-radius: 4px;">
+          <div class="stat-label" style="color: var(--gold); margin-bottom: 0.3rem;">Latest WGC insight ({{ wgc.period }})</div>
+          <div style="font-weight: 600; margin-bottom: 0.3rem;">{{ wgc.title }}</div>
+          {% if wgc.description %}
+          <div class="meta" style="line-height: 1.5;">{{ wgc.description }}</div>
+          {% endif %}
+          {% if wgc.page_url %}
+          <div class="meta" style="margin-top: 0.5rem;">
+            <a href="{{ wgc.page_url }}" style="color: var(--gold);" target="_blank" rel="noopener">Read the full commentary on gold.org &rarr;</a>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="meta" style="margin-top: 1rem;">
+          Tonnes derived from each fund's market cap ÷ gold spot; physical-gold ETFs trade at NAV.
+          Source: Yahoo Finance.
+        </div>
+      {% elif aggregate and aggregate.get('error') %}
+        <div class="error-msg">{{ aggregate.error }}</div>
       {% else %}
         <div class="error-msg">No data available</div>
       {% endif %}

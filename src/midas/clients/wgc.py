@@ -1,44 +1,31 @@
-"""Client for World Gold Council gold-ETF holdings & flows data.
+"""Scrape the World Gold Council's monthly ETF commentary page.
 
-The WGC publishes a monthly XLSX with global gold ETF holdings (tonnes)
-and flows (USD), broken out by region (North America, Europe, Asia,
-Other) and by individual fund.  There is no JSON/REST API, so this
-client:
+The underlying xlsx with global holdings/flows numbers is gated behind
+a WGC user account (``DU1: You must be logged in``) so we no longer
+mirror it.  Instead we grab the publicly-accessible research write-up
+for the most recent month and surface its title + lead paragraph on
+the dashboard, with a link back to gold.org for the full commentary.
 
-  1. First tries a local disk cache (populated by a scheduled GitHub
-     Actions mirror in ``src/midas/data/wgc/``).
-  2. Falls back to scraping the monthly commentary page at
-     ``/goldhub/research/gold-etfs-holdings-and-flows/<YYYY>/<MM>`` to
-     locate the current ``.xlsx`` link, then downloading it.
+The research URL pattern is::
 
-Network fetches use an ``httpx.Client`` with HTTP/2 and a realistic
-set of browser headers, plus a three-step Referer chain (landing page
--> monthly page -> xlsx) to mimic a real navigation. Gold.org's CDN
-blocks datacenter IPs with bare User-Agent-only requests.
+    https://www.gold.org/goldhub/research/gold-etfs-holdings-and-flows/<YYYY>/<MM>
 
-The xlsx layout changes occasionally, so parsing is best-effort and
-defensive — if the structure isn't recognised, we still return the
-download URL so the user can grab the file manually.
+We walk backwards from the current month until we find a published
+page (the latest report usually lags a week or two behind the calendar
+month end).
 """
 
 from __future__ import annotations
 
-import io
-import json
+import html
 import logging
 import re
 from datetime import date
-from pathlib import Path
 from typing import Optional
 
 import httpx
-import pandas as pd
 
 log = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------
-# HTTP configuration
-# ----------------------------------------------------------------------
 
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -48,51 +35,28 @@ _BROWSER_HEADERS = {
     ),
     "Accept": (
         "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,image/apng,*/*;q=0.8,"
-        "application/signed-exchange;v=b3;q=0.7"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
-    "Sec-Ch-Ua": (
-        '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"'
-    ),
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"macOS"',
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-User": "?1",
-    "Sec-Fetch-Dest": "document",
     "Upgrade-Insecure-Requests": "1",
 }
 
 _GOLDHUB_LANDING = "https://www.gold.org/goldhub"
-_GOLDHUB_ETF_HUB = (
-    "https://www.gold.org/goldhub/data/gold-etfs-holdings-and-flows"
-)
 _RESEARCH_URL = (
     "https://www.gold.org/goldhub/research/"
     "gold-etfs-holdings-and-flows/{year}/{month:02d}"
 )
-_XLSX_HREF = re.compile(
-    r'href=["\'](?P<href>[^"\']*?/download/file/\d+/[^"\']*?\.xlsx[^"\']*)["\']',
+
+_META_CONTENT = re.compile(
+    r'<meta\s+[^>]*?(?:property|name)=["\'](?P<key>[^"\']+)["\']'
+    r'\s+content=["\'](?P<val>[^"\']*)["\']',
     re.IGNORECASE,
 )
-
-# ----------------------------------------------------------------------
-# Disk cache (populated by the WGC mirror Action; absent otherwise)
-# ----------------------------------------------------------------------
-
-# Relative to the ``midas`` package root (i.e. ``src/midas/data/wgc/``)
-_CACHE_SUBPATH = Path("data") / "wgc"
-_CACHE_XLSX = "latest.xlsx"
-_CACHE_META = "metadata.json"
-
-# Regions we care about on the summary card
-_REGIONS = ("North America", "Europe", "Asia", "Other")
+_TITLE_TAG = re.compile(r"<title>(?P<t>.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 
 def _new_client() -> httpx.Client:
-    """Create an httpx.Client configured like a real browser."""
     try:
         return httpx.Client(
             headers=_BROWSER_HEADERS,
@@ -101,7 +65,6 @@ def _new_client() -> httpx.Client:
             follow_redirects=True,
         )
     except Exception:
-        # h2 not installed — fall back to HTTP/1.1
         return httpx.Client(
             headers=_BROWSER_HEADERS,
             timeout=30,
@@ -109,275 +72,82 @@ def _new_client() -> httpx.Client:
         )
 
 
+def _extract_meta(body: str) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    for m in _META_CONTENT.finditer(body):
+        meta.setdefault(m.group("key").lower(), html.unescape(m.group("val")))
+    return meta
+
+
 class WGCETFClient:
-    """Fetch aggregated gold-ETF holdings/flows from World Gold Council."""
+    """Fetch the latest public WGC gold-ETF commentary."""
 
-    # ------------------------------------------------------------------
-    # Disk cache
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _cache_dir() -> Path:
-        # src/midas/clients/wgc.py -> src/midas/
-        return Path(__file__).resolve().parent.parent / _CACHE_SUBPATH
-
-    def _load_from_cache(self) -> Optional[dict]:
-        cache_dir = self._cache_dir()
-        xlsx_path = cache_dir / _CACHE_XLSX
-        meta_path = cache_dir / _CACHE_META
-        if not xlsx_path.exists():
-            return None
-        try:
-            metadata: dict = {}
-            if meta_path.exists():
-                try:
-                    metadata = json.loads(meta_path.read_text())
-                except json.JSONDecodeError as exc:
-                    log.warning("Bad WGC metadata.json: %s", exc)
-            xls = pd.ExcelFile(xlsx_path, engine="openpyxl")
-            data = self._extract_from_sheets(xls)
-            data["source_url"] = metadata.get("source_url", "")
-            data["sheets"] = xls.sheet_names
-            data["cached_at"] = metadata.get("fetched_at")
-            log.info(
-                "WGC disk cache hit (%s, fetched_at=%s)",
-                xlsx_path,
-                data["cached_at"],
-            )
-            return data
-        except Exception as exc:
-            log.warning("Failed to load WGC cache: %s", exc)
-            return None
-
-    # ------------------------------------------------------------------
-    # Locating the latest xlsx (network path)
-    # ------------------------------------------------------------------
-
-    def _find_xlsx_on_page(
+    def _fetch_page(
         self, client: httpx.Client, year: int, month: int
-    ) -> Optional[str]:
+    ) -> Optional[dict]:
         url = _RESEARCH_URL.format(year=year, month=month)
         try:
-            resp = client.get(
-                url,
-                headers={"Referer": _GOLDHUB_LANDING},
-            )
+            resp = client.get(url, headers={"Referer": _GOLDHUB_LANDING})
         except Exception as exc:
-            log.warning("WGC page fetch failed %s: %s", url, exc)
+            log.info("WGC page fetch failed %s: %s", url, exc)
             return None
 
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
-            log.warning("WGC page %s returned %d", url, resp.status_code)
+            log.info("WGC page %s returned %d", url, resp.status_code)
             return None
 
-        match = _XLSX_HREF.search(resp.text)
-        if not match:
-            log.info("No xlsx link found on %s", url)
-            return None
-
-        href = match.group("href")
-        # Diagnostic: dump context around the matched href so we can see
-        # adjacent attributes/tokens that might be needed for download.
-        start = max(0, match.start() - 200)
-        end = min(len(resp.text), match.end() + 200)
-        log.info(
-            "xlsx link context [%d..%d] on %s:\n%s",
-            start, end, url, resp.text[start:end],
+        meta = _extract_meta(resp.text)
+        title = (
+            meta.get("og:title")
+            or meta.get("twitter:title")
         )
-        if href.startswith("/"):
-            href = "https://www.gold.org" + href
-        return href
+        if not title:
+            m = _TITLE_TAG.search(resp.text)
+            if m:
+                title = html.unescape(m.group("t")).strip()
 
-    def _find_latest_xlsx(
-        self, client: httpx.Client, max_months_back: int = 4
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Return (xlsx_url, originating_monthly_page_url)."""
-        today = date.today()
-        year, month = today.year, today.month
-        for _ in range(max_months_back):
-            page_url = _RESEARCH_URL.format(year=year, month=month)
-            u = self._find_xlsx_on_page(client, year, month)
-            if u:
-                log.info("Found WGC xlsx for %d-%02d: %s", year, month, u)
-                return u, page_url
-            month -= 1
-            if month < 1:
-                month = 12
-                year -= 1
-        return None, None
+        description = (
+            meta.get("og:description")
+            or meta.get("twitter:description")
+            or meta.get("description")
+        )
 
-    def get_latest_xlsx_url(self, max_months_back: int = 4) -> Optional[str]:
-        """Public: locate the most recent xlsx URL (warm session first)."""
-        with _new_client() as client:
-            self._warm_session(client)
-            url, _ = self._find_latest_xlsx(client, max_months_back)
-            return url
-
-    # ------------------------------------------------------------------
-    # Session warmup — hit the landing page so cookies get set
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _warm_session(client: httpx.Client) -> None:
-        """Visit the landing page and the ETF data hub page so cookies
-        that gate /download/file/ get set."""
-        for warm_url in (_GOLDHUB_LANDING, _GOLDHUB_ETF_HUB):
-            try:
-                resp = client.get(warm_url)
-                log.info(
-                    "Warmed %s: %d (cookies now: %d)",
-                    warm_url,
-                    resp.status_code,
-                    len(client.cookies.jar),
-                )
-            except Exception as exc:
-                log.warning("Warmup %s failed (continuing): %s", warm_url, exc)
-
-    # ------------------------------------------------------------------
-    # Parsing the xlsx — defensive, since layouts vary
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _to_float(val) -> Optional[float]:
-        if val is None or (isinstance(val, float) and pd.isna(val)):
+        # Only treat a page as valid if we actually got a title that
+        # mentions ETFs. Not-yet-published months on gold.org's CMS
+        # sometimes return a 200 with generic hub content instead of
+        # a 404, so we want to filter those out.
+        if not title or "ETF" not in title:
+            log.info("Page %s had no recognisable report title", url)
             return None
-        try:
-            return float(str(val).replace(",", "").strip())
-        except (ValueError, TypeError):
-            return None
-
-    def _extract_from_sheets(self, xls: pd.ExcelFile) -> dict:
-        """Best-effort extraction of headline & regional numbers."""
-        global_tonnes: Optional[float] = None
-        global_aum_bn: Optional[float] = None
-        regional_flows: list[dict] = []
-        report_period: Optional[str] = None
-
-        for sheet_name in xls.sheet_names:
-            try:
-                df = xls.parse(sheet_name, header=None)
-            except Exception as exc:
-                log.debug("Could not parse sheet %s: %s", sheet_name, exc)
-                continue
-
-            for i in range(len(df)):
-                row = df.iloc[i]
-                for j in range(len(row)):
-                    cell = row.iloc[j]
-                    if pd.isna(cell):
-                        continue
-                    label = str(cell).strip().lower()
-
-                    if (
-                        global_tonnes is None
-                        and "total" in label
-                        and "tonne" in label
-                    ):
-                        num = self._find_number_near(df, i, j)
-                        if num and 1500 < num < 10000:
-                            global_tonnes = num
-
-                    if (
-                        global_aum_bn is None
-                        and "aum" in label
-                        and ("us$" in label or "usd" in label or "$" in label)
-                    ):
-                        num = self._find_number_near(df, i, j)
-                        if num and 50 < num < 1000:
-                            global_aum_bn = num
-
-                    for region in _REGIONS:
-                        if label == region.lower() and not any(
-                            r["region"] == region for r in regional_flows
-                        ):
-                            num = self._find_number_near(df, i, j)
-                            if num is not None:
-                                regional_flows.append(
-                                    {"region": region, "flow_usd_mn": num}
-                                )
-
-                    if report_period is None and re.match(
-                        r"^(january|february|march|april|may|june|july|"
-                        r"august|september|october|november|december)\s+\d{4}$",
-                        label,
-                    ):
-                        report_period = str(cell).strip()
 
         return {
-            "global_tonnes": global_tonnes,
-            "global_aum_bn": global_aum_bn,
-            "regional_flows": regional_flows,
-            "report_period": report_period,
+            "title": (title or "").strip() or None,
+            "description": (description or "").strip() or None,
+            "page_url": url,
+            "period": f"{year:04d}-{month:02d}",
         }
 
-    @staticmethod
-    def _find_number_near(df: pd.DataFrame, i: int, j: int) -> Optional[float]:
-        """Look right then down for the nearest numeric cell."""
-        for k in range(j + 1, min(j + 8, df.shape[1])):
-            num = WGCETFClient._to_float(df.iat[i, k])
-            if num is not None:
-                return num
-        for k in range(i + 1, min(i + 5, df.shape[0])):
-            num = WGCETFClient._to_float(df.iat[k, j])
-            if num is not None:
-                return num
-        return None
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def get_latest(self) -> dict:
-        """Return the latest WGC ETF holdings/flows summary.
-
-        Tries disk cache first, then falls back to scraping gold.org.
-        Raises RuntimeError if neither path yields data.
-        """
-        cached = self._load_from_cache()
-        if cached:
-            return cached
-
+    def get_latest_commentary(
+        self, max_months_back: int = 4
+    ) -> Optional[dict]:
+        """Return {title, description, page_url, period} or None."""
+        today = date.today()
+        year, month = today.year, today.month
         with _new_client() as client:
-            self._warm_session(client)
-            xlsx_url, page_url = self._find_latest_xlsx(client)
-            if not xlsx_url:
-                raise RuntimeError(
-                    "Could not locate a recent WGC gold-ETF flows xlsx on "
-                    "gold.org. The site may be blocking requests from "
-                    "this IP, or the monthly report hasn't been published "
-                    "yet. If this persists, populate the disk cache via "
-                    "the GitHub Actions mirror."
-                )
-
-            xlsx_headers = {
-                "Referer": page_url or _GOLDHUB_LANDING,
-                "Sec-Fetch-Site": "same-origin",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1",
-                "Accept": (
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
-                    "image/avif,image/webp,image/apng,*/*;q=0.8,"
-                    "application/signed-exchange;v=b3;q=0.7"
-                ),
-            }
-            resp = client.get(xlsx_url, headers=xlsx_headers, timeout=60)
-            resp.raise_for_status()
-
-            try:
-                xls = pd.ExcelFile(
-                    io.BytesIO(resp.content), engine="openpyxl"
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Could not open WGC xlsx: {exc}"
-                ) from exc
-
-            data = self._extract_from_sheets(xls)
-            data["source_url"] = xlsx_url
-            data["sheets"] = xls.sheet_names
-            data["cached_at"] = None
-            return data
+            for _ in range(max_months_back):
+                info = self._fetch_page(client, year, month)
+                if info:
+                    log.info(
+                        "Found WGC commentary for %d-%02d: %s",
+                        year,
+                        month,
+                        info["title"],
+                    )
+                    return info
+                month -= 1
+                if month < 1:
+                    month = 12
+                    year -= 1
+        return None
