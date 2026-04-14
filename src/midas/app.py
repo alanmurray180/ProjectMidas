@@ -104,6 +104,7 @@ def _fetch_wgc_etf() -> dict | None:
                 for r in data.get("regional_flows", [])
             ],
             "source_url": data.get("source_url"),
+            "cached_at": data.get("cached_at"),
         }
     except Exception as exc:
         return {"error": str(exc)}
