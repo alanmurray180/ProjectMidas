@@ -8,6 +8,9 @@ load_dotenv()
 METALPRICEAPI_KEY: str = os.getenv("METALPRICEAPI_KEY", "")
 METALPRICEAPI_BASE: str = "https://api.metalpriceapi.com/v1"
 
+FRED_API_KEY: str = os.getenv("FRED_API_KEY", "3166ea6cf00acf749f1a635b63cc3dca")
+FRED_BASE: str = "https://api.stlouisfed.org/fred"
+
 CFTC_BASE: str = "https://www.cftc.gov/files/dea/history"
 # Socrata open-data API for the Disaggregated Futures-only report
 CFTC_SOCRATA_URL: str = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
