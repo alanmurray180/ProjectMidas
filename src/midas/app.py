@@ -138,6 +138,46 @@ def _fetch_gold_etf_aggregate() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_dxy() -> dict | None:
+    try:
+        from midas.clients.dxy import DXYClient
+
+        prices = DXYClient().get_prices(days=30)
+        if not prices:
+            return {"error": "No DXY data available"}
+        latest = prices[-1]
+        first = prices[0]
+        change = latest["close"] - first["close"]
+        change_pct = (change / first["close"]) * 100 if first["close"] else 0
+
+        sparkline_closes = [p["close"] for p in prices]
+        lo, hi = min(sparkline_closes), max(sparkline_closes)
+        span = hi - lo if hi != lo else 1
+        svg_w, svg_h = 280, 60
+        points = []
+        for i, val in enumerate(sparkline_closes):
+            x = (i / max(len(sparkline_closes) - 1, 1)) * svg_w
+            y = svg_h - ((val - lo) / span) * svg_h
+            points.append(f"{x:.1f},{y:.1f}")
+        polyline = " ".join(points)
+
+        return {
+            "latest": f"{latest['close']:.2f}",
+            "latest_date": latest["date"].isoformat(),
+            "first_date": first["date"].isoformat(),
+            "change": f"{change:+.2f}",
+            "change_pct": f"{change_pct:+.2f}",
+            "positive": change >= 0,
+            "sparkline_svg": polyline,
+            "svg_w": svg_w,
+            "svg_h": svg_h,
+            "hi": f"{hi:.2f}",
+            "lo": f"{lo:.2f}",
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _fetch_wgc_commentary() -> dict | None:
     try:
         from midas.clients.wgc import WGCETFClient
@@ -158,6 +198,7 @@ def _fetch_wgc_commentary() -> dict | None:
 @app.route("/")
 def dashboard():
     gold_price = _fetch_gold_price()
+    dxy = _fetch_dxy()
     cot = _fetch_cot_positions()
     etf = _fetch_etf_holdings()
     aggregate = _fetch_gold_etf_aggregate()
@@ -165,6 +206,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         gold_price=gold_price,
+        dxy=dxy,
         cot=cot,
         etf=etf,
         aggregate=aggregate,
