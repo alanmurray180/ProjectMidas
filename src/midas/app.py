@@ -138,6 +138,17 @@ def _fetch_gold_etf_aggregate() -> dict | None:
         return {"error": str(exc)}
 
 
+def _sparkline(values: list[float], w: int = 280, h: int = 60) -> dict:
+    lo, hi = min(values), max(values)
+    span = hi - lo if hi != lo else 1
+    points = []
+    for i, val in enumerate(values):
+        x = (i / max(len(values) - 1, 1)) * w
+        y = h - ((val - lo) / span) * h
+        points.append(f"{x:.1f},{y:.1f}")
+    return {"svg": " ".join(points), "w": w, "h": h, "lo": lo, "hi": hi}
+
+
 def _fetch_dxy() -> dict | None:
     try:
         from midas.clients.dxy import DXYClient
@@ -145,21 +156,10 @@ def _fetch_dxy() -> dict | None:
         prices = DXYClient().get_prices(days=30)
         if not prices:
             return {"error": "No DXY data available"}
-        latest = prices[-1]
-        first = prices[0]
+        latest, first = prices[-1], prices[0]
         change = latest["close"] - first["close"]
         change_pct = (change / first["close"]) * 100 if first["close"] else 0
-
-        sparkline_closes = [p["close"] for p in prices]
-        lo, hi = min(sparkline_closes), max(sparkline_closes)
-        span = hi - lo if hi != lo else 1
-        svg_w, svg_h = 280, 60
-        points = []
-        for i, val in enumerate(sparkline_closes):
-            x = (i / max(len(sparkline_closes) - 1, 1)) * svg_w
-            y = svg_h - ((val - lo) / span) * svg_h
-            points.append(f"{x:.1f},{y:.1f}")
-        polyline = " ".join(points)
+        sl = _sparkline([p["close"] for p in prices])
 
         return {
             "latest": f"{latest['close']:.2f}",
@@ -168,11 +168,11 @@ def _fetch_dxy() -> dict | None:
             "change": f"{change:+.2f}",
             "change_pct": f"{change_pct:+.2f}",
             "positive": change >= 0,
-            "sparkline_svg": polyline,
-            "svg_w": svg_w,
-            "svg_h": svg_h,
-            "hi": f"{hi:.2f}",
-            "lo": f"{lo:.2f}",
+            "sparkline_svg": sl["svg"],
+            "svg_w": sl["w"],
+            "svg_h": sl["h"],
+            "hi": f"{sl['hi']:.2f}",
+            "lo": f"{sl['lo']:.2f}",
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -185,21 +185,10 @@ def _fetch_gold_silver_ratio() -> dict | None:
         records = GoldSilverRatioClient().get_ratio(days=30)
         if not records:
             return {"error": "No gold/silver ratio data available"}
-        latest = records[-1]
-        first = records[0]
+        latest, first = records[-1], records[0]
         change = latest["ratio"] - first["ratio"]
         change_pct = (change / first["ratio"]) * 100 if first["ratio"] else 0
-
-        ratios = [r["ratio"] for r in records]
-        lo, hi = min(ratios), max(ratios)
-        span = hi - lo if hi != lo else 1
-        svg_w, svg_h = 280, 60
-        points = []
-        for i, val in enumerate(ratios):
-            x = (i / max(len(ratios) - 1, 1)) * svg_w
-            y = svg_h - ((val - lo) / span) * svg_h
-            points.append(f"{x:.1f},{y:.1f}")
-        polyline = " ".join(points)
+        sl = _sparkline([r["ratio"] for r in records])
 
         return {
             "latest": f"{latest['ratio']:.1f}",
@@ -210,11 +199,95 @@ def _fetch_gold_silver_ratio() -> dict | None:
             "change": f"{change:+.1f}",
             "change_pct": f"{change_pct:+.2f}",
             "positive": change >= 0,
-            "sparkline_svg": polyline,
-            "svg_w": svg_w,
-            "svg_h": svg_h,
-            "hi": f"{hi:.1f}",
-            "lo": f"{lo:.1f}",
+            "sparkline_svg": sl["svg"],
+            "svg_w": sl["w"],
+            "svg_h": sl["h"],
+            "hi": f"{sl['hi']:.1f}",
+            "lo": f"{sl['lo']:.1f}",
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _fetch_real_yield() -> dict | None:
+    try:
+        from midas.clients.fred import FREDClient
+
+        records = FREDClient().get_real_yield_10y(days=30)
+        if not records:
+            return {"error": "No 10Y real yield data available"}
+        latest, first = records[-1], records[0]
+        change = latest["value"] - first["value"]
+        sl = _sparkline([r["value"] for r in records])
+
+        return {
+            "latest": f"{latest['value']:.2f}%",
+            "latest_date": latest["date"].isoformat(),
+            "first_date": first["date"].isoformat(),
+            "change": f"{change:+.2f}",
+            "positive": change >= 0,
+            "sparkline_svg": sl["svg"],
+            "svg_w": sl["w"],
+            "svg_h": sl["h"],
+            "hi": f"{sl['hi']:.2f}%",
+            "lo": f"{sl['lo']:.2f}%",
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _fetch_cpi() -> dict | None:
+    try:
+        from midas.clients.fred import FREDClient
+
+        records = FREDClient().get_cpi_yoy(months=13)
+        if not records:
+            return {"error": "No CPI data available"}
+        latest, first = records[-1], records[0]
+        change = latest["value"] - first["value"]
+        sl = _sparkline([r["value"] for r in records])
+
+        return {
+            "latest": f"{latest['value']:.1f}%",
+            "latest_date": latest["date"].isoformat(),
+            "first_date": first["date"].isoformat(),
+            "change": f"{change:+.1f}",
+            "positive": change >= 0,
+            "sparkline_svg": sl["svg"],
+            "svg_w": sl["w"],
+            "svg_h": sl["h"],
+            "hi": f"{sl['hi']:.1f}%",
+            "lo": f"{sl['lo']:.1f}%",
+            "months": len(records),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _fetch_vix() -> dict | None:
+    try:
+        from midas.clients.vix import VIXClient
+
+        prices = VIXClient().get_prices(days=30)
+        if not prices:
+            return {"error": "No VIX data available"}
+        latest, first = prices[-1], prices[0]
+        change = latest["close"] - first["close"]
+        change_pct = (change / first["close"]) * 100 if first["close"] else 0
+        sl = _sparkline([p["close"] for p in prices])
+
+        return {
+            "latest": f"{latest['close']:.2f}",
+            "latest_date": latest["date"].isoformat(),
+            "first_date": first["date"].isoformat(),
+            "change": f"{change:+.2f}",
+            "change_pct": f"{change_pct:+.2f}",
+            "positive": change >= 0,
+            "sparkline_svg": sl["svg"],
+            "svg_w": sl["w"],
+            "svg_h": sl["h"],
+            "hi": f"{sl['hi']:.2f}",
+            "lo": f"{sl['lo']:.2f}",
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -242,6 +315,9 @@ def dashboard():
     gold_price = _fetch_gold_price()
     dxy = _fetch_dxy()
     gsr = _fetch_gold_silver_ratio()
+    real_yield = _fetch_real_yield()
+    cpi = _fetch_cpi()
+    vix = _fetch_vix()
     cot = _fetch_cot_positions()
     etf = _fetch_etf_holdings()
     aggregate = _fetch_gold_etf_aggregate()
@@ -251,6 +327,9 @@ def dashboard():
         gold_price=gold_price,
         dxy=dxy,
         gsr=gsr,
+        real_yield=real_yield,
+        cpi=cpi,
+        vix=vix,
         cot=cot,
         etf=etf,
         aggregate=aggregate,
