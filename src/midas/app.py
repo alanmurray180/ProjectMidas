@@ -178,6 +178,48 @@ def _fetch_dxy() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_gold_silver_ratio() -> dict | None:
+    try:
+        from midas.clients.gold_silver import GoldSilverRatioClient
+
+        records = GoldSilverRatioClient().get_ratio(days=30)
+        if not records:
+            return {"error": "No gold/silver ratio data available"}
+        latest = records[-1]
+        first = records[0]
+        change = latest["ratio"] - first["ratio"]
+        change_pct = (change / first["ratio"]) * 100 if first["ratio"] else 0
+
+        ratios = [r["ratio"] for r in records]
+        lo, hi = min(ratios), max(ratios)
+        span = hi - lo if hi != lo else 1
+        svg_w, svg_h = 280, 60
+        points = []
+        for i, val in enumerate(ratios):
+            x = (i / max(len(ratios) - 1, 1)) * svg_w
+            y = svg_h - ((val - lo) / span) * svg_h
+            points.append(f"{x:.1f},{y:.1f}")
+        polyline = " ".join(points)
+
+        return {
+            "latest": f"{latest['ratio']:.1f}",
+            "gold": f"{latest['gold']:,.2f}",
+            "silver": f"{latest['silver']:.2f}",
+            "latest_date": latest["date"].isoformat(),
+            "first_date": first["date"].isoformat(),
+            "change": f"{change:+.1f}",
+            "change_pct": f"{change_pct:+.2f}",
+            "positive": change >= 0,
+            "sparkline_svg": polyline,
+            "svg_w": svg_w,
+            "svg_h": svg_h,
+            "hi": f"{hi:.1f}",
+            "lo": f"{lo:.1f}",
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _fetch_wgc_commentary() -> dict | None:
     try:
         from midas.clients.wgc import WGCETFClient
@@ -199,6 +241,7 @@ def _fetch_wgc_commentary() -> dict | None:
 def dashboard():
     gold_price = _fetch_gold_price()
     dxy = _fetch_dxy()
+    gsr = _fetch_gold_silver_ratio()
     cot = _fetch_cot_positions()
     etf = _fetch_etf_holdings()
     aggregate = _fetch_gold_etf_aggregate()
@@ -207,6 +250,7 @@ def dashboard():
         "dashboard.html",
         gold_price=gold_price,
         dxy=dxy,
+        gsr=gsr,
         cot=cot,
         etf=etf,
         aggregate=aggregate,

@@ -194,12 +194,49 @@
       {% endif %}
     </div>
 
-    <!-- COT Positioning -->
+    <!-- Gold/Silver Ratio -->
     <div class="card">
+      <h2>Gold / Silver Ratio</h2>
+      {% if gsr and not gsr.get('error') %}
+        <div style="display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 0.2rem;">
+          <span style="font-size: 2.2rem; font-weight: 700; color: var(--gold-light);">{{ gsr.latest }}x</span>
+          <span style="font-size: 1.1rem; font-weight: 600; color: {% if gsr.positive %}var(--green){% else %}var(--red){% endif %};">
+            {{ gsr.change }} ({{ gsr.change_pct }}%)
+          </span>
+        </div>
+        <div class="meta" style="margin-bottom: 0.8rem;">
+          Au ${{ gsr.gold }} / Ag ${{ gsr.silver }} &middot; {{ gsr.latest_date }}
+        </div>
+        <div style="background: rgba(255,255,255,0.03); border-radius: 6px; padding: 0.6rem 0.5rem 0.4rem;">
+          <svg viewBox="0 0 {{ gsr.svg_w }} {{ gsr.svg_h }}" width="100%" height="70" preserveAspectRatio="none" style="display: block;">
+            <polyline
+              points="{{ gsr.sparkline_svg }}"
+              fill="none"
+              stroke="var(--gold)"
+              stroke-width="1.8"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+              vector-effect="non-scaling-stroke"
+            />
+          </svg>
+          <div style="display: flex; justify-content: space-between; margin-top: 0.2rem;">
+            <span class="meta">Low {{ gsr.lo }}</span>
+            <span class="meta">High {{ gsr.hi }}</span>
+          </div>
+        </div>
+      {% elif gsr and gsr.get('error') %}
+        <div class="error-msg">{{ gsr.error }}</div>
+      {% else %}
+        <div class="error-msg">No data available</div>
+      {% endif %}
+    </div>
+
+    <!-- COT Positioning (full width) -->
+    <div class="card full-width">
       <h2>CFTC COT Positioning</h2>
       {% if cot and not cot.get('error') %}
         <div class="meta" style="margin-bottom: 1rem;">Report date: {{ cot.report_date }}</div>
-        <div class="stat-grid">
+        <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
           <div class="stat">
             <div class="stat-label">Managed Money Long</div>
             <div class="stat-value">{{ cot.mm_long }}</div>
