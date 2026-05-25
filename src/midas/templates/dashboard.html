@@ -554,6 +554,8 @@
             {% if etf.tonnes.latest_date %}
             <div class="meta" style="margin-top: 0.3rem;">{{ etf.tonnes.latest_date }}</div>
             {% endif %}
+            {% else %}
+            <div class="meta" style="color: var(--text-muted); font-style: italic;">SPDR CSV unavailable — signal excluded from total</div>
             {% endif %}
           </div>
 
@@ -575,6 +577,8 @@
             {% if etf.volume.latest_date %}
             <div class="meta" style="margin-top: 0.3rem;">{{ etf.volume.latest_date }}</div>
             {% endif %}
+            {% else %}
+            <div class="meta" style="color: var(--text-muted); font-style: italic;">Yahoo data unavailable — signal excluded from total</div>
             {% endif %}
           </div>
 
@@ -595,6 +599,8 @@
             {% if etf.price.latest_date %}
             <div class="meta" style="margin-top: 0.3rem;">{{ etf.price.latest_date }}</div>
             {% endif %}
+            {% else %}
+            <div class="meta" style="color: var(--text-muted); font-style: italic;">Yahoo data unavailable — signal excluded from total</div>
             {% endif %}
           </div>
         </div>

@@ -3,7 +3,7 @@
 Three binary signals, each scored +1 or -1:
 
   1. **GLD tonnes trend** — 5-day rolling average of GLD physical
-     holdings (from SPDR's daily CSV) increasing vs decreasing.
+     holdings (from SPDR's JSON API) increasing vs decreasing.
   2. **Composite ETF volume** — summed daily volume across GLD, IAU,
      SGOL, GLDM, PHYS; scored above (+1) or below (-1) the 20-day MA.
   3. **Gold price vs 50-day MA** — GLD close above (+1) or below (-1)
@@ -15,29 +15,30 @@ Overall score ranges from **-3** (strongly bearish) to **+3**
 
 from __future__ import annotations
 
-import io
 import logging
+from datetime import date, datetime
 from typing import Optional
 
 import httpx
-import pandas as pd
 
 from midas.clients.etf import _fetch_yahoo_chart
 
 log = logging.getLogger(__name__)
 
-_GLD_TONNES_URL = (
-    "https://www.spdrgoldshares.com/assets/dynamic/GLD/"
-    "GLD_US_archive_EN.csv"
+_GLD_API_URL = (
+    "https://api.spdrgoldshares.com/api/v1/historical-archive"
 )
+_GLD_API_PARAMS = {"product": "gld", "exchange": "NYSE", "lang": "en"}
 
 _BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,text/csv,*/*",
+    "Accept": "application/json, */*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.spdrgoldshares.com/",
+    "Origin": "https://www.spdrgoldshares.com",
 }
 
 _TICKERS = ("GLD", "IAU", "SGOL", "GLDM", "PHYS")
@@ -51,6 +52,50 @@ def _rolling_mean(values: list[float], window: int) -> list[Optional[float]]:
         else:
             result.append(sum(values[i - window + 1 : i + 1]) / window)
     return result
+
+
+def _find_key(record: dict, *candidates: str) -> Optional[str]:
+    """Find a key in *record* matching any candidate (case-insensitive substring)."""
+    lower_map = {k.lower(): k for k in record}
+    for c in candidates:
+        for lk, real_key in lower_map.items():
+            if c in lk:
+                return real_key
+    return None
+
+
+def _parse_float(val) -> Optional[float]:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).replace(",", "").replace("$", "").strip()
+    if not s or s in ("-", "N/A", "n/a", "—", ""):
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_date(val) -> Optional[date]:
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d-%b-%Y", "%d/%m/%Y",
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    try:
+        from dateutil.parser import parse as du_parse
+        return du_parse(s).date()
+    except Exception:
+        pass
+    return None
 
 
 class GoldETFScorecard:
@@ -81,58 +126,80 @@ class GoldETFScorecard:
         }
 
     # ------------------------------------------------------------------
-    # GLD tonnes from SPDR CSV
+    # GLD tonnes from SPDR JSON API
     # ------------------------------------------------------------------
 
     @staticmethod
     def _fetch_gld_tonnes() -> list[dict]:
         try:
             resp = httpx.get(
-                _GLD_TONNES_URL,
+                _GLD_API_URL,
+                params=_GLD_API_PARAMS,
                 headers=_BROWSER_HEADERS,
                 timeout=30,
                 follow_redirects=True,
             )
             resp.raise_for_status()
+            payload = resp.json()
         except Exception as exc:
-            log.warning("GLD tonnes CSV fetch failed: %s", exc)
+            log.warning("GLD API fetch failed: %s", exc)
             return []
 
-        try:
-            df = pd.read_csv(io.StringIO(resp.text))
-        except Exception as exc:
-            log.warning("GLD tonnes CSV parse failed: %s", exc)
+        # The API may return a list directly or wrap it in a key.
+        rows: list = []
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict):
+            for key in ("data", "records", "results", "items", "rows"):
+                if key in payload and isinstance(payload[key], list):
+                    rows = payload[key]
+                    break
+            if not rows:
+                for v in payload.values():
+                    if isinstance(v, list) and len(v) > 10:
+                        rows = v
+                        break
+
+        if not rows:
+            log.warning("GLD API: no rows found in response (type=%s)", type(payload).__name__)
             return []
 
-        date_col = None
-        tonnes_col = None
-        for col in df.columns:
-            lower = col.strip().lower()
-            if "date" in lower and date_col is None:
-                date_col = col
-            if "tonne" in lower:
-                tonnes_col = col
+        # Discover field names from the first record.
+        sample = rows[0] if rows else {}
+        date_key = _find_key(sample, "date")
+        tonnes_key = _find_key(sample, "tonne")
 
-        if not date_col or not tonnes_col:
+        if not date_key or not tonnes_key:
             log.warning(
-                "GLD CSV: can't find date/tonnes columns in %s",
-                list(df.columns),
+                "GLD API: can't find date/tonnes fields in keys %s",
+                list(sample.keys()),
             )
             return []
 
-        records: list[dict] = []
-        for _, row in df.iterrows():
-            try:
-                d = pd.to_datetime(row[date_col]).date()
-                raw = str(row[tonnes_col]).replace(",", "").strip()
-                if raw in ("", "-", "N/A"):
-                    continue
-                t = float(raw)
-                records.append({"date": d, "tonnes": t})
-            except (ValueError, TypeError):
-                continue
+        log.info(
+            "GLD API: using date_key=%r, tonnes_key=%r from %d rows",
+            date_key, tonnes_key, len(rows),
+        )
 
-        return sorted(records, key=lambda r: r["date"])
+        records: list[dict] = []
+        for row in rows:
+            d = _parse_date(row.get(date_key))
+            t = _parse_float(row.get(tonnes_key))
+            if d is not None and t is not None and t > 0:
+                records.append({"date": d, "tonnes": t})
+
+        records.sort(key=lambda r: r["date"])
+
+        if records:
+            log.info(
+                "GLD API: parsed %d records, range %s to %s, latest=%.2f t",
+                len(records), records[0]["date"], records[-1]["date"],
+                records[-1]["tonnes"],
+            )
+        else:
+            log.warning("GLD API: parsed 0 valid records from %d rows", len(rows))
+
+        return records
 
     # ------------------------------------------------------------------
     # Signal 1: GLD tonnes 5-day rolling average trend
@@ -144,7 +211,7 @@ class GoldETFScorecard:
             return {
                 "score": 0,
                 "label": "N/A",
-                "reason": "insufficient tonnes data",
+                "reason": f"insufficient tonnes data ({len(records)} records)",
             }
 
         tonnes = [r["tonnes"] for r in records]
