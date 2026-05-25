@@ -511,25 +511,97 @@
       {% endif %}
     </div>
 
-    <!-- ETF Price -->
+    <!-- Gold ETF Scorecard -->
     <div class="card full-width">
-      <h2>{{ etf.ticker if etf and not etf.get('error') else 'GLD' }} ETF — Daily Close Price (Last {{ etf.row_count if etf and not etf.get('error') else '10' }} Sessions)</h2>
+      <h2>Gold ETF Scorecard</h2>
       {% if etf and not etf.get('error') %}
-        <div style="margin-bottom: 1rem;">
-          <span class="stat-label">Latest close:</span>
-          <span class="stat-value" style="font-size:1.4rem;">$&thinsp;{{ etf.latest_close }}</span>
-          <span class="meta">&middot; {{ etf.latest_date }}</span>
+        <!-- Overall score banner -->
+        <div style="display: flex; align-items: center; gap: 1.2rem; margin-bottom: 1.2rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid {% if etf.positive %}var(--green){% elif etf.negative %}var(--red){% else %}var(--gold){% endif %};">
+          <div>
+            <div class="stat-label">Overall Signal</div>
+            <div style="font-size: 2.4rem; font-weight: 700; color: {% if etf.positive %}var(--green){% elif etf.negative %}var(--red){% else %}var(--gold){% endif %};">
+              {% if etf.total_score > 0 %}+{% endif %}{{ etf.total_score }}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 1.2rem; font-weight: 600; color: {% if etf.positive %}var(--green){% elif etf.negative %}var(--red){% else %}var(--gold){% endif %};">
+              {{ etf.score_label }}
+            </div>
+            <div class="meta">Sum of 3 binary signals &middot; range -3 to +3</div>
+          </div>
+          <div style="margin-left: auto;" class="meta">
+            {{ etf.tickers_loaded | join(', ') }}
+          </div>
         </div>
-        <table>
-          <thead>
-            <tr><th>Date</th><th>Close (USD)</th><th>Volume</th></tr>
-          </thead>
-          <tbody>
-            {% for row in etf.recent %}
-            <tr><td>{{ row.date }}</td><td>${{ row.close }}</td><td>{{ row.volume }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+
+        <!-- Three signal cards -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+          <!-- Signal 1: GLD Tonnes -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">GLD Holdings (Tonnes)</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if etf.tonnes.score == 1 %}var(--green){% elif etf.tonnes.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if etf.tonnes.score == 1 %}+1{% elif etf.tonnes.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if etf.tonnes.score == 1 %}var(--green){% elif etf.tonnes.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ etf.tonnes.label }}
+            </div>
+            {% if etf.tonnes.latest_tonnes != '—' %}
+            <div class="meta">Latest: {{ etf.tonnes.latest_tonnes }} t</div>
+            <div class="meta">5d avg: {{ etf.tonnes.current_5d_avg }} t</div>
+            <div class="meta">Prev 5d avg: {{ etf.tonnes.prev_5d_avg }} t</div>
+            {% if etf.tonnes.latest_date %}
+            <div class="meta" style="margin-top: 0.3rem;">{{ etf.tonnes.latest_date }}</div>
+            {% endif %}
+            {% endif %}
+          </div>
+
+          <!-- Signal 2: Composite Volume -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">Composite Volume (5 ETFs)</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if etf.volume.score == 1 %}var(--green){% elif etf.volume.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if etf.volume.score == 1 %}+1{% elif etf.volume.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if etf.volume.score == 1 %}var(--green){% elif etf.volume.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ etf.volume.label }}
+            </div>
+            {% if etf.volume.latest_volume != '—' %}
+            <div class="meta">Today: {{ etf.volume.latest_volume }} shares</div>
+            <div class="meta">20d MA: {{ etf.volume.ma_20d }} shares</div>
+            <div class="meta">Funds tracked: {{ etf.volume.ticker_count }}</div>
+            {% if etf.volume.latest_date %}
+            <div class="meta" style="margin-top: 0.3rem;">{{ etf.volume.latest_date }}</div>
+            {% endif %}
+            {% endif %}
+          </div>
+
+          <!-- Signal 3: Gold Price vs 50d MA -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">GLD Price vs 50d MA</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if etf.price.score == 1 %}var(--green){% elif etf.price.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if etf.price.score == 1 %}+1{% elif etf.price.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if etf.price.score == 1 %}var(--green){% elif etf.price.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ etf.price.label }}
+            </div>
+            {% if etf.price.latest_close != '—' %}
+            <div class="meta">GLD close: {{ etf.price.latest_close }}</div>
+            <div class="meta">50d MA: {{ etf.price.ma_50d }}</div>
+            {% if etf.price.latest_date %}
+            <div class="meta" style="margin-top: 0.3rem;">{{ etf.price.latest_date }}</div>
+            {% endif %}
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="meta" style="margin-top: 1rem;">
+          Tonnes from SPDR GLD daily archive &middot; OHLCV from Yahoo Finance &middot; signals are binary (+1 / -1)
+        </div>
       {% elif etf and etf.get('error') %}
         <div class="error-msg">{{ etf.error }}</div>
       {% else %}

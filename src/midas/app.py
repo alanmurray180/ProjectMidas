@@ -70,32 +70,79 @@ def _fetch_cot_positions() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_etf_holdings(yahoo_range: str, rows: int) -> dict | None:
+def _fetch_etf_scorecard() -> dict | None:
     try:
-        from midas.clients.etf import GoldETFClient
+        from midas.clients.etf_scorecard import GoldETFScorecard
 
-        client = GoldETFClient()
-        prices = client.get_gld_prices(range_=yahoo_range)
-        if not prices:
-            return {"error": "No ETF price data available"}
-        latest = prices[-1]
-        tail = prices[-rows:]
-        formatted = [
-            {
-                "date": p["date"].isoformat(),
-                "close": f"{p['close']:,.2f}",
-                "volume": f"{p['volume']:,}" if p.get("volume") else "—",
-            }
-            for p in tail
-        ]
+        data = GoldETFScorecard().compute()
+        score = data["total_score"]
+        labels = {
+            3: "Strong Bullish", 2: "Bullish", 1: "Slightly Bullish",
+            0: "Neutral",
+            -1: "Slightly Bearish", -2: "Bearish", -3: "Strong Bearish",
+        }
+
+        def _fmt_vol(v):
+            if v is None:
+                return "—"
+            if v >= 1_000_000:
+                return f"{v / 1_000_000:,.1f}M"
+            if v >= 1_000:
+                return f"{v / 1_000:,.0f}K"
+            return f"{v:,}"
+
+        tonnes = data["tonnes"]
+        volume = data["volume"]
+        price = data["price"]
+
         return {
-            "ticker": "GLD",
-            "latest_date": latest["date"].isoformat(),
-            "latest_close": f"{latest['close']:,.2f}",
-            "recent": formatted,
-            "row_count": len(tail),
+            "total_score": score,
+            "score_label": labels.get(score, "Neutral"),
+            "positive": score > 0,
+            "negative": score < 0,
+            "tonnes": {
+                "score": tonnes["score"],
+                "label": tonnes.get("label", "N/A"),
+                "current_5d_avg": (
+                    f"{tonnes['current_5d_avg']:,.2f}"
+                    if "current_5d_avg" in tonnes else "—"
+                ),
+                "prev_5d_avg": (
+                    f"{tonnes['prev_5d_avg']:,.2f}"
+                    if "prev_5d_avg" in tonnes else "—"
+                ),
+                "latest_tonnes": (
+                    f"{tonnes['latest_tonnes']:,.2f}"
+                    if "latest_tonnes" in tonnes else "—"
+                ),
+                "latest_date": tonnes.get("latest_date", ""),
+            },
+            "volume": {
+                "score": volume["score"],
+                "label": volume.get("label", "N/A"),
+                "latest_volume": _fmt_vol(volume.get("latest_volume")),
+                "ma_20d": _fmt_vol(volume.get("ma_20d")),
+                "latest_date": volume.get("latest_date", ""),
+                "ticker_count": volume.get("ticker_count", 0),
+            },
+            "price": {
+                "score": price["score"],
+                "label": price.get("label", "N/A"),
+                "latest_close": (
+                    f"${price['latest_close']:,.2f}"
+                    if "latest_close" in price else "—"
+                ),
+                "ma_50d": (
+                    f"${price['ma_50d']:,.2f}"
+                    if "ma_50d" in price else "—"
+                ),
+                "latest_date": price.get("latest_date", ""),
+            },
+            "tickers_loaded": data.get("tickers_loaded", []),
         }
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return {"error": str(exc)}
 
 
@@ -345,7 +392,7 @@ def dashboard():
     cpi = _fetch_cpi(preset["cpi_months"])
     vix = _fetch_vix(yr)
     cot = _fetch_cot_positions()
-    etf = _fetch_etf_holdings(yr, preset["etf_rows"])
+    etf = _fetch_etf_scorecard()
     aggregate = _fetch_gold_etf_aggregate()
     wgc = _fetch_wgc_commentary()
     return render_template(
