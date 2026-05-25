@@ -17,4 +17,4 @@ CFTC_SOCRATA_URL: str = "https://publicreporting.cftc.gov/resource/72hh-3qpy.jso
 CFTC_APP_TOKEN: str = os.getenv("FINANCIAL_ANALYSIS_COT", "")
 
 # SPDR Gold Shares publishes daily holdings
-GLD_HOLDINGS_URL: str = "https://www.spdrgoldshares.com/assets/dynamic/GLD/GLD_US_archive.csv"
+GLD_HOLDINGS_URL: str = "https://www.spdrgoldshares.com/assets/dynamic/GLD/GLD_US_archive_EN.csv"

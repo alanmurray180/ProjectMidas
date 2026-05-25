@@ -11,9 +11,9 @@ from midas.clients.etf import _fetch_yahoo_chart
 class VIXClient:
     """Fetch VIX daily close prices."""
 
-    def get_prices(self, days: int = 30) -> list[dict]:
-        """Return daily VIX closes for the last *days* calendar days.
+    def get_prices(self, range_: str = "1mo") -> list[dict]:
+        """Return daily VIX closes for the given Yahoo range (e.g. '1mo', '1y').
 
         Each record: ``{date: date, close: float, volume: int|None}``
         """
-        return _fetch_yahoo_chart("^VIX", range_=f"{days}d")
+        return _fetch_yahoo_chart("^VIX", range_=range_)

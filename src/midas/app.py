@@ -5,11 +5,29 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, template_folder="templates")
+
+# Maps the user-facing toggle value to parameters for each data source.
+_RANGE_PRESETS = {
+    "30d": {
+        "yahoo": "1mo",
+        "fred_days": 45,
+        "cpi_months": 6,
+        "etf_rows": 10,
+        "label": "30-day",
+    },
+    "12m": {
+        "yahoo": "1y",
+        "fred_days": 395,
+        "cpi_months": 13,
+        "etf_rows": 20,
+        "label": "12-month",
+    },
+}
 
 
 def _fetch_gold_price() -> dict | None:
@@ -52,30 +70,79 @@ def _fetch_cot_positions() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_etf_holdings() -> dict | None:
+def _fetch_etf_scorecard() -> dict | None:
     try:
-        from midas.clients.etf import GoldETFClient
+        from midas.clients.etf_scorecard import GoldETFScorecard
 
-        client = GoldETFClient()
-        prices = client.get_gld_prices(days=30)
-        if not prices:
-            return {"error": "No ETF price data available"}
-        latest = prices[-1]
-        rows = [
-            {
-                "date": p["date"].isoformat(),
-                "close": f"{p['close']:,.2f}",
-                "volume": f"{p['volume']:,}" if p.get("volume") else "—",
-            }
-            for p in prices[-10:]
-        ]
+        data = GoldETFScorecard().compute()
+        score = data["total_score"]
+        labels = {
+            3: "Strong Bullish", 2: "Bullish", 1: "Slightly Bullish",
+            0: "Neutral",
+            -1: "Slightly Bearish", -2: "Bearish", -3: "Strong Bearish",
+        }
+
+        def _fmt_vol(v):
+            if v is None:
+                return "—"
+            if v >= 1_000_000:
+                return f"{v / 1_000_000:,.1f}M"
+            if v >= 1_000:
+                return f"{v / 1_000:,.0f}K"
+            return f"{v:,}"
+
+        tonnes = data["tonnes"]
+        volume = data["volume"]
+        price = data["price"]
+
         return {
-            "ticker": "GLD",
-            "latest_date": latest["date"].isoformat(),
-            "latest_close": f"{latest['close']:,.2f}",
-            "recent": rows,
+            "total_score": score,
+            "score_label": labels.get(score, "Neutral"),
+            "positive": score > 0,
+            "negative": score < 0,
+            "tonnes": {
+                "score": tonnes["score"],
+                "label": tonnes.get("label", "N/A"),
+                "current_5d_avg": (
+                    f"{tonnes['current_5d_avg']:,.2f}"
+                    if "current_5d_avg" in tonnes else "—"
+                ),
+                "prev_5d_avg": (
+                    f"{tonnes['prev_5d_avg']:,.2f}"
+                    if "prev_5d_avg" in tonnes else "—"
+                ),
+                "latest_tonnes": (
+                    f"{tonnes['latest_tonnes']:,.2f}"
+                    if "latest_tonnes" in tonnes else "—"
+                ),
+                "latest_date": tonnes.get("latest_date", ""),
+            },
+            "volume": {
+                "score": volume["score"],
+                "label": volume.get("label", "N/A"),
+                "latest_volume": _fmt_vol(volume.get("latest_volume")),
+                "ma_20d": _fmt_vol(volume.get("ma_20d")),
+                "latest_date": volume.get("latest_date", ""),
+                "ticker_count": volume.get("ticker_count", 0),
+            },
+            "price": {
+                "score": price["score"],
+                "label": price.get("label", "N/A"),
+                "latest_close": (
+                    f"${price['latest_close']:,.2f}"
+                    if "latest_close" in price else "—"
+                ),
+                "ma_50d": (
+                    f"${price['ma_50d']:,.2f}"
+                    if "ma_50d" in price else "—"
+                ),
+                "latest_date": price.get("latest_date", ""),
+            },
+            "tickers_loaded": data.get("tickers_loaded", []),
         }
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return {"error": str(exc)}
 
 
@@ -149,11 +216,11 @@ def _sparkline(values: list[float], w: int = 280, h: int = 60) -> dict:
     return {"svg": " ".join(points), "w": w, "h": h, "lo": lo, "hi": hi}
 
 
-def _fetch_dxy() -> dict | None:
+def _fetch_dxy(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.dxy import DXYClient
 
-        prices = DXYClient().get_prices(days=30)
+        prices = DXYClient().get_prices(range_=yahoo_range)
         if not prices:
             return {"error": "No DXY data available"}
         latest, first = prices[-1], prices[0]
@@ -178,11 +245,11 @@ def _fetch_dxy() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_gold_silver_ratio() -> dict | None:
+def _fetch_gold_silver_ratio(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.gold_silver import GoldSilverRatioClient
 
-        records = GoldSilverRatioClient().get_ratio(days=30)
+        records = GoldSilverRatioClient().get_ratio(range_=yahoo_range)
         if not records:
             return {"error": "No gold/silver ratio data available"}
         latest, first = records[-1], records[0]
@@ -209,11 +276,11 @@ def _fetch_gold_silver_ratio() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_real_yield() -> dict | None:
+def _fetch_real_yield(fred_days: int) -> dict | None:
     try:
         from midas.clients.fred import FREDClient
 
-        records = FREDClient().get_real_yield_10y(days=30)
+        records = FREDClient().get_real_yield_10y(days=fred_days)
         if not records:
             return {"error": "No 10Y real yield data available"}
         latest, first = records[-1], records[0]
@@ -236,11 +303,11 @@ def _fetch_real_yield() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_cpi() -> dict | None:
+def _fetch_cpi(cpi_months: int) -> dict | None:
     try:
         from midas.clients.fred import FREDClient
 
-        records = FREDClient().get_cpi_yoy(months=13)
+        records = FREDClient().get_cpi_yoy(months=cpi_months)
         if not records:
             return {"error": "No CPI data available"}
         latest, first = records[-1], records[0]
@@ -264,11 +331,11 @@ def _fetch_cpi() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_vix() -> dict | None:
+def _fetch_vix(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.vix import VIXClient
 
-        prices = VIXClient().get_prices(days=30)
+        prices = VIXClient().get_prices(range_=yahoo_range)
         if not prices:
             return {"error": "No VIX data available"}
         latest, first = prices[-1], prices[0]
@@ -312,14 +379,20 @@ def _fetch_wgc_commentary() -> dict | None:
 
 @app.route("/")
 def dashboard():
+    period = request.args.get("range", "30d")
+    if period not in _RANGE_PRESETS:
+        period = "30d"
+    preset = _RANGE_PRESETS[period]
+    yr = preset["yahoo"]
+
     gold_price = _fetch_gold_price()
-    dxy = _fetch_dxy()
-    gsr = _fetch_gold_silver_ratio()
-    real_yield = _fetch_real_yield()
-    cpi = _fetch_cpi()
-    vix = _fetch_vix()
+    dxy = _fetch_dxy(yr)
+    gsr = _fetch_gold_silver_ratio(yr)
+    real_yield = _fetch_real_yield(preset["fred_days"])
+    cpi = _fetch_cpi(preset["cpi_months"])
+    vix = _fetch_vix(yr)
     cot = _fetch_cot_positions()
-    etf = _fetch_etf_holdings()
+    etf = _fetch_etf_scorecard()
     aggregate = _fetch_gold_etf_aggregate()
     wgc = _fetch_wgc_commentary()
     return render_template(
@@ -334,6 +407,8 @@ def dashboard():
         etf=etf,
         aggregate=aggregate,
         wgc=wgc,
+        period=period,
+        range_label=preset["label"],
     )
 
 
