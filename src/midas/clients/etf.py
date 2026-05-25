@@ -81,13 +81,13 @@ def _fetch_yahoo_chart(ticker: str, range_: str = "1mo") -> list[dict]:
 class GoldETFClient:
     """Fetch GLD (and IAU) ETF price data from Yahoo Finance."""
 
-    def get_gld_prices(self, days: int = 30) -> list[dict]:
-        """Return daily GLD close prices for the last *days* calendar days.
+    def get_gld_prices(self, range_: str = "1mo") -> list[dict]:
+        """Return daily GLD close prices for the given Yahoo range.
 
         Each record: {date: date, close: float, volume: int|None}
         Falls back to IAU if GLD fails.
         """
         try:
-            return _fetch_yahoo_chart("GLD", range_=f"{days}d")
+            return _fetch_yahoo_chart("GLD", range_=range_)
         except Exception:
-            return _fetch_yahoo_chart("IAU", range_=f"{days}d")
+            return _fetch_yahoo_chart("IAU", range_=range_)

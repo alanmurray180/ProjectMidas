@@ -13,13 +13,13 @@ from midas.clients.etf import _fetch_yahoo_chart
 class GoldSilverRatioClient:
     """Compute the gold/silver price ratio from futures data."""
 
-    def get_ratio(self, days: int = 30) -> list[dict]:
-        """Return daily gold/silver ratio for the last *days* calendar days.
+    def get_ratio(self, range_: str = "1mo") -> list[dict]:
+        """Return daily gold/silver ratio for the given Yahoo range.
 
         Each record: ``{date: date, gold: float, silver: float, ratio: float}``
         """
-        gold = _fetch_yahoo_chart("GC=F", range_=f"{days}d")
-        silver = _fetch_yahoo_chart("SI=F", range_=f"{days}d")
+        gold = _fetch_yahoo_chart("GC=F", range_=range_)
+        silver = _fetch_yahoo_chart("SI=F", range_=range_)
 
         silver_by_date = {s["date"]: s["close"] for s in silver}
 

@@ -13,9 +13,9 @@ from midas.clients.etf import _fetch_yahoo_chart
 class DXYClient:
     """Fetch DXY (US Dollar Index) daily close prices."""
 
-    def get_prices(self, days: int = 30) -> list[dict]:
-        """Return daily DXY closes for the last *days* calendar days.
+    def get_prices(self, range_: str = "1mo") -> list[dict]:
+        """Return daily DXY closes for the given Yahoo range (e.g. '1mo', '1y').
 
         Each record: ``{date: date, close: float, volume: int|None}``
         """
-        return _fetch_yahoo_chart("DX-Y.NYB", range_=f"{days}d")
+        return _fetch_yahoo_chart("DX-Y.NYB", range_=range_)

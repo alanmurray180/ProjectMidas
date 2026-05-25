@@ -5,11 +5,29 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, template_folder="templates")
+
+# Maps the user-facing toggle value to parameters for each data source.
+_RANGE_PRESETS = {
+    "30d": {
+        "yahoo": "1mo",
+        "fred_days": 45,
+        "cpi_months": 6,
+        "etf_rows": 10,
+        "label": "30-day",
+    },
+    "12m": {
+        "yahoo": "1y",
+        "fred_days": 395,
+        "cpi_months": 13,
+        "etf_rows": 20,
+        "label": "12-month",
+    },
+}
 
 
 def _fetch_gold_price() -> dict | None:
@@ -52,28 +70,30 @@ def _fetch_cot_positions() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_etf_holdings() -> dict | None:
+def _fetch_etf_holdings(yahoo_range: str, rows: int) -> dict | None:
     try:
         from midas.clients.etf import GoldETFClient
 
         client = GoldETFClient()
-        prices = client.get_gld_prices(days=30)
+        prices = client.get_gld_prices(range_=yahoo_range)
         if not prices:
             return {"error": "No ETF price data available"}
         latest = prices[-1]
-        rows = [
+        tail = prices[-rows:]
+        formatted = [
             {
                 "date": p["date"].isoformat(),
                 "close": f"{p['close']:,.2f}",
                 "volume": f"{p['volume']:,}" if p.get("volume") else "—",
             }
-            for p in prices[-10:]
+            for p in tail
         ]
         return {
             "ticker": "GLD",
             "latest_date": latest["date"].isoformat(),
             "latest_close": f"{latest['close']:,.2f}",
-            "recent": rows,
+            "recent": formatted,
+            "row_count": len(tail),
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -149,11 +169,11 @@ def _sparkline(values: list[float], w: int = 280, h: int = 60) -> dict:
     return {"svg": " ".join(points), "w": w, "h": h, "lo": lo, "hi": hi}
 
 
-def _fetch_dxy() -> dict | None:
+def _fetch_dxy(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.dxy import DXYClient
 
-        prices = DXYClient().get_prices(days=30)
+        prices = DXYClient().get_prices(range_=yahoo_range)
         if not prices:
             return {"error": "No DXY data available"}
         latest, first = prices[-1], prices[0]
@@ -178,11 +198,11 @@ def _fetch_dxy() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_gold_silver_ratio() -> dict | None:
+def _fetch_gold_silver_ratio(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.gold_silver import GoldSilverRatioClient
 
-        records = GoldSilverRatioClient().get_ratio(days=30)
+        records = GoldSilverRatioClient().get_ratio(range_=yahoo_range)
         if not records:
             return {"error": "No gold/silver ratio data available"}
         latest, first = records[-1], records[0]
@@ -209,11 +229,11 @@ def _fetch_gold_silver_ratio() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_real_yield() -> dict | None:
+def _fetch_real_yield(fred_days: int) -> dict | None:
     try:
         from midas.clients.fred import FREDClient
 
-        records = FREDClient().get_real_yield_10y(days=30)
+        records = FREDClient().get_real_yield_10y(days=fred_days)
         if not records:
             return {"error": "No 10Y real yield data available"}
         latest, first = records[-1], records[0]
@@ -236,11 +256,11 @@ def _fetch_real_yield() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_cpi() -> dict | None:
+def _fetch_cpi(cpi_months: int) -> dict | None:
     try:
         from midas.clients.fred import FREDClient
 
-        records = FREDClient().get_cpi_yoy(months=13)
+        records = FREDClient().get_cpi_yoy(months=cpi_months)
         if not records:
             return {"error": "No CPI data available"}
         latest, first = records[-1], records[0]
@@ -264,11 +284,11 @@ def _fetch_cpi() -> dict | None:
         return {"error": str(exc)}
 
 
-def _fetch_vix() -> dict | None:
+def _fetch_vix(yahoo_range: str) -> dict | None:
     try:
         from midas.clients.vix import VIXClient
 
-        prices = VIXClient().get_prices(days=30)
+        prices = VIXClient().get_prices(range_=yahoo_range)
         if not prices:
             return {"error": "No VIX data available"}
         latest, first = prices[-1], prices[0]
@@ -312,14 +332,20 @@ def _fetch_wgc_commentary() -> dict | None:
 
 @app.route("/")
 def dashboard():
+    period = request.args.get("range", "30d")
+    if period not in _RANGE_PRESETS:
+        period = "30d"
+    preset = _RANGE_PRESETS[period]
+    yr = preset["yahoo"]
+
     gold_price = _fetch_gold_price()
-    dxy = _fetch_dxy()
-    gsr = _fetch_gold_silver_ratio()
-    real_yield = _fetch_real_yield()
-    cpi = _fetch_cpi()
-    vix = _fetch_vix()
+    dxy = _fetch_dxy(yr)
+    gsr = _fetch_gold_silver_ratio(yr)
+    real_yield = _fetch_real_yield(preset["fred_days"])
+    cpi = _fetch_cpi(preset["cpi_months"])
+    vix = _fetch_vix(yr)
     cot = _fetch_cot_positions()
-    etf = _fetch_etf_holdings()
+    etf = _fetch_etf_holdings(yr, preset["etf_rows"])
     aggregate = _fetch_gold_etf_aggregate()
     wgc = _fetch_wgc_commentary()
     return render_template(
@@ -334,6 +360,8 @@ def dashboard():
         etf=etf,
         aggregate=aggregate,
         wgc=wgc,
+        period=period,
+        range_label=preset["label"],
     )
 
 
