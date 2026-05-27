@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 from datetime import date, datetime
 from typing import Optional
 
@@ -27,6 +28,8 @@ from midas.clients.etf import _fetch_yahoo_chart
 
 log = logging.getLogger(__name__)
 
+# SPDR endpoints — kept as first-choice but with short timeouts since
+# Cloudflare blocks most server-side callers.
 _GLD_API_URL = (
     "https://api.spdrgoldshares.com/api/v1/historical-archive"
 )
@@ -35,23 +38,20 @@ _GLD_CSV_URL = (
     "https://www.spdrgoldshares.com/assets/dynamic/GLD/"
     "GLD_US_archive_EN.csv"
 )
+_GLD_PAGE_URL = "https://www.spdrgoldshares.com/usa/gld/"
+_SPDR_TIMEOUT = 5  # seconds — fail fast so Yahoo fallback has time
 
 _BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
     ),
-    "Accept": "application/json, text/html, text/csv, */*",
+    "Accept": "text/html, application/json, text/csv, */*",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://www.spdrgoldshares.com/en/daily-gold-etf-holdings/",
-    "Origin": "https://www.spdrgoldshares.com",
     "Sec-Ch-Ua": '"Chromium";v="125", "Google Chrome";v="125", "Not-A.Brand";v="99"',
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-site",
     "DNT": "1",
 }
 
@@ -202,6 +202,33 @@ def _parse_csv_text(text: str) -> list[dict]:
     return records
 
 
+def _scrape_gld_page_tonnes(html: str) -> Optional[float]:
+    """Extract the latest tonnes value from the SPDR GLD HTML page."""
+    # Look for "Tonnes of Gold in Trust" or similar labels followed by a number
+    patterns = [
+        r'(?i)tonnes?\s*(?:of\s+gold)?[^0-9]{0,60}?([\d,]+\.?\d*)\s*(?:t\b|tonnes?)?',
+        r'(?i)gold\s+in\s+(?:the\s+)?trust[^0-9]{0,40}?([\d,]+\.?\d*)',
+        r'(?i)total\s+(?:gold\s+)?holdings?[^0-9]{0,40}?([\d,]+\.?\d*)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, html)
+        if m:
+            val = _parse_float(m.group(1))
+            if val and 100 < val < 2000:
+                log.info("GLD page scrape: matched %.2f t via pattern %r", val, pat[:40])
+                return val
+
+    # Also check for JSON embedded in <script> tags
+    json_pat = re.findall(r'(?i)"tonne[^"]*"\s*:\s*"?([\d,]+\.?\d*)"?', html)
+    for raw in json_pat:
+        val = _parse_float(raw)
+        if val and 100 < val < 2000:
+            log.info("GLD page scrape: found %.2f t in embedded JSON", val)
+            return val
+
+    return None
+
+
 def _fetch_gld_tonnes_yahoo() -> list[dict]:
     """Estimate current GLD tonnes from Yahoo Finance marketCap / gold price."""
     market_cap = None
@@ -211,7 +238,7 @@ def _fetch_gld_tonnes_yahoo() -> list[dict]:
                 url_tmpl.format(ticker="GLD"),
                 params={"modules": "price"},
                 headers=_YAHOO_HEADERS,
-                timeout=20,
+                timeout=10,
                 follow_redirects=True,
             )
             resp.raise_for_status()
@@ -275,56 +302,77 @@ class GoldETFScorecard:
         }
 
     # ------------------------------------------------------------------
-    # GLD tonnes — JSON API first, CSV fallback, both via HTTP/2
+    # GLD tonnes — SPDR endpoints (fast-fail) then Yahoo fallback
     # ------------------------------------------------------------------
 
     @staticmethod
     def _fetch_gld_tonnes() -> list[dict]:
+        # SPDR attempts use very short timeouts (5s) because Cloudflare
+        # often holds connections open for 30s+ before rejecting them,
+        # which would starve the Yahoo fallback of Render's request budget.
         with httpx.Client(
             http2=True,
             follow_redirects=True,
-            timeout=30,
+            timeout=_SPDR_TIMEOUT,
         ) as client:
-            # --- Attempt 1: JSON API ---
+            # --- Attempt 1: SPDR JSON API ---
             try:
                 resp = client.get(
                     _GLD_API_URL,
                     params=_GLD_API_PARAMS,
-                    headers=_BROWSER_HEADERS,
+                    headers={
+                        **_BROWSER_HEADERS,
+                        "Referer": "https://www.spdrgoldshares.com/",
+                        "Origin": "https://www.spdrgoldshares.com",
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Site": "same-site",
+                        "Sec-Fetch-Dest": "empty",
+                    },
                 )
                 log.info("GLD JSON API: status=%d, len=%d", resp.status_code, len(resp.content))
                 resp.raise_for_status()
                 records = _parse_json_payload(resp.json())
                 if records:
-                    log.info(
-                        "GLD JSON API: %d records, %s to %s, latest=%.2f t",
-                        len(records), records[0]["date"],
-                        records[-1]["date"], records[-1]["tonnes"],
-                    )
+                    log.info("GLD JSON API: %d records, latest=%.2f t", len(records), records[-1]["tonnes"])
                     return records
-                log.warning("GLD JSON API: response parsed but 0 usable records")
             except Exception as exc:
                 log.warning("GLD JSON API failed: %s", exc)
 
-            # --- Attempt 2: CSV endpoint ---
+            # --- Attempt 2: SPDR CSV ---
             try:
-                csv_headers = {**_BROWSER_HEADERS, "Accept": "text/csv, text/html, */*"}
-                resp = client.get(_GLD_CSV_URL, headers=csv_headers)
+                resp = client.get(
+                    _GLD_CSV_URL,
+                    headers={**_BROWSER_HEADERS, "Accept": "text/csv, */*"},
+                )
                 log.info("GLD CSV: status=%d, len=%d", resp.status_code, len(resp.content))
                 resp.raise_for_status()
                 records = _parse_csv_text(resp.text)
                 if records:
-                    log.info(
-                        "GLD CSV fallback: %d records, %s to %s, latest=%.2f t",
-                        len(records), records[0]["date"],
-                        records[-1]["date"], records[-1]["tonnes"],
-                    )
+                    log.info("GLD CSV: %d records, latest=%.2f t", len(records), records[-1]["tonnes"])
                     return records
-                log.warning("GLD CSV: response received but 0 usable records")
             except Exception as exc:
-                log.warning("GLD CSV fallback failed: %s", exc)
+                log.warning("GLD CSV failed: %s", exc)
 
-        # --- Attempt 3: Yahoo Finance estimate (single data point) ---
+            # --- Attempt 3: scrape the SPDR GLD product page ---
+            try:
+                resp = client.get(
+                    _GLD_PAGE_URL,
+                    headers={
+                        **_BROWSER_HEADERS,
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-Dest": "document",
+                    },
+                )
+                log.info("GLD page: status=%d, len=%d", resp.status_code, len(resp.content))
+                resp.raise_for_status()
+                tonnes = _scrape_gld_page_tonnes(resp.text)
+                if tonnes:
+                    return [{"date": date.today(), "tonnes": tonnes}]
+            except Exception as exc:
+                log.warning("GLD page scrape failed: %s", exc)
+
+        # --- Attempt 4: Yahoo Finance estimate ---
         try:
             records = _fetch_gld_tonnes_yahoo()
             if records:
