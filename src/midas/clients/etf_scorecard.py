@@ -55,6 +55,20 @@ _BROWSER_HEADERS = {
     "DNT": "1",
 }
 
+_YAHOO_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finance.yahoo.com/",
+}
+
+_YAHOO_QUOTE = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+_YAHOO_QUOTE_ALT = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+_OZ_PER_TONNE = 32_150.7466
+
 _TICKERS = ("GLD", "IAU", "SGOL", "GLDM", "PHYS")
 
 
@@ -188,6 +202,51 @@ def _parse_csv_text(text: str) -> list[dict]:
     return records
 
 
+def _fetch_gld_tonnes_yahoo() -> list[dict]:
+    """Estimate current GLD tonnes from Yahoo Finance marketCap / gold price."""
+    market_cap = None
+    for url_tmpl in (_YAHOO_QUOTE, _YAHOO_QUOTE_ALT):
+        try:
+            resp = httpx.get(
+                url_tmpl.format(ticker="GLD"),
+                params={"modules": "price"},
+                headers=_YAHOO_HEADERS,
+                timeout=20,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+            result = resp.json()["quoteSummary"]["result"][0]
+            mc = result.get("price", {}).get("marketCap", {})
+            market_cap = mc.get("raw") if isinstance(mc, dict) else mc
+            if market_cap:
+                break
+        except Exception as exc:
+            log.info("Yahoo quoteSummary GLD failed (%s): %s", url_tmpl.split("/")[2], exc)
+
+    if not market_cap:
+        log.warning("Yahoo GLD fallback: could not get market cap")
+        return []
+
+    gold_price = None
+    try:
+        gold_data = _fetch_yahoo_chart("GC=F", range_="5d")
+        if gold_data:
+            gold_price = gold_data[-1]["close"]
+    except Exception as exc:
+        log.warning("Yahoo GLD fallback: gold futures fetch failed: %s", exc)
+
+    if not gold_price or gold_price <= 0:
+        log.warning("Yahoo GLD fallback: no gold spot price")
+        return []
+
+    tonnes = market_cap / (gold_price * _OZ_PER_TONNE)
+    log.info(
+        "Yahoo GLD fallback: mktcap=$%.0f, gold=$%.2f/oz, est=%.1f t",
+        market_cap, gold_price, tonnes,
+    )
+    return [{"date": date.today(), "tonnes": round(tonnes, 2), "estimated": True}]
+
+
 class GoldETFScorecard:
     """Compute ETF flow signals and overall score."""
 
@@ -265,7 +324,15 @@ class GoldETFScorecard:
             except Exception as exc:
                 log.warning("GLD CSV fallback failed: %s", exc)
 
-        log.warning("GLD: all SPDR data sources failed")
+        # --- Attempt 3: Yahoo Finance estimate (single data point) ---
+        try:
+            records = _fetch_gld_tonnes_yahoo()
+            if records:
+                return records
+        except Exception as exc:
+            log.warning("Yahoo GLD fallback failed: %s", exc)
+
+        log.warning("GLD: all data sources failed")
         return []
 
     # ------------------------------------------------------------------
@@ -275,11 +342,18 @@ class GoldETFScorecard:
     @staticmethod
     def _score_tonnes(records: list[dict]) -> dict:
         if len(records) < 6:
-            return {
+            result: dict = {
                 "score": 0,
                 "label": "N/A",
                 "reason": f"insufficient tonnes data ({len(records)} records)",
             }
+            if records:
+                is_estimate = any(r.get("estimated") for r in records)
+                result["latest_tonnes"] = records[-1]["tonnes"]
+                result["latest_date"] = records[-1]["date"].isoformat()
+                result["estimated"] = is_estimate
+                result["label"] = "Estimated (Yahoo)" if is_estimate else "N/A"
+            return result
 
         tonnes = [r["tonnes"] for r in records]
         ra5 = _rolling_mean(tonnes, 5)

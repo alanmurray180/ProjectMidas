@@ -103,6 +103,7 @@ def _fetch_etf_scorecard() -> dict | None:
             "tonnes": {
                 "score": tonnes["score"],
                 "label": tonnes.get("label", "N/A"),
+                "estimated": tonnes.get("estimated", False),
                 "current_5d_avg": (
                     f"{tonnes['current_5d_avg']:,.2f}"
                     if "current_5d_avg" in tonnes else "—"

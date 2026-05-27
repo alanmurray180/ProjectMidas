@@ -547,15 +547,18 @@
             <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if etf.tonnes.score == 1 %}var(--green){% elif etf.tonnes.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
               {{ etf.tonnes.label }}
             </div>
-            {% if etf.tonnes.latest_tonnes != '—' %}
+            {% if etf.tonnes.latest_tonnes != '—' and not etf.tonnes.estimated %}
             <div class="meta">Latest: {{ etf.tonnes.latest_tonnes }} t</div>
             <div class="meta">5d avg: {{ etf.tonnes.current_5d_avg }} t</div>
             <div class="meta">Prev 5d avg: {{ etf.tonnes.prev_5d_avg }} t</div>
             {% if etf.tonnes.latest_date %}
             <div class="meta" style="margin-top: 0.3rem;">{{ etf.tonnes.latest_date }}</div>
             {% endif %}
+            {% elif etf.tonnes.estimated %}
+            <div class="meta">Est. holdings: {{ etf.tonnes.latest_tonnes }} t</div>
+            <div class="meta" style="color: var(--text-muted); font-style: italic;">Derived from Yahoo Finance (GLD mktcap / gold price). Trend unavailable — signal excluded from total.</div>
             {% else %}
-            <div class="meta" style="color: var(--text-muted); font-style: italic;">SPDR CSV unavailable — signal excluded from total</div>
+            <div class="meta" style="color: var(--text-muted); font-style: italic;">SPDR data unavailable — signal excluded from total</div>
             {% endif %}
           </div>
 
