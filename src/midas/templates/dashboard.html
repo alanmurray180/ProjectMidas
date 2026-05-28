@@ -726,6 +726,84 @@
       {% endif %}
     </div>
 
+    <!-- Swiss Gold Trade -->
+    <div class="card full-width">
+      <h2>Swiss Gold Trade by Country (HS 7108)</h2>
+      {% if swiss_trade and not swiss_trade.get('error') %}
+        <div class="meta" style="margin-bottom: 1rem;">
+          Annual data for {{ swiss_trade.year }} &middot; HS heading 7108 (gold, unwrought or semi-manufactured)
+        </div>
+        <div class="stat-grid" style="margin-bottom: 1.2rem;">
+          <div class="stat">
+            <div class="stat-label">Total Imports</div>
+            <div class="stat-value">{{ swiss_trade.total_import_usd }}</div>
+            <div class="meta">{{ swiss_trade.total_import_kg }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Total Exports</div>
+            <div class="stat-value">{{ swiss_trade.total_export_usd }}</div>
+            <div class="meta">{{ swiss_trade.total_export_kg }}</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+          <!-- Imports by country -->
+          <div>
+            <div class="stat-label" style="margin-bottom: 0.5rem;">Top Import Sources</div>
+            {% if swiss_trade.imports %}
+            <table>
+              <thead>
+                <tr><th>Country</th><th style="text-align: right;">Value (USD)</th><th style="text-align: right;">Weight</th></tr>
+              </thead>
+              <tbody>
+                {% for r in swiss_trade.imports %}
+                <tr>
+                  <td>{{ r.country }}</td>
+                  <td style="text-align: right;">{{ r.value_usd }}</td>
+                  <td style="text-align: right;">{{ r.weight_kg }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <div class="meta">No import data available</div>
+            {% endif %}
+          </div>
+
+          <!-- Exports by country -->
+          <div>
+            <div class="stat-label" style="margin-bottom: 0.5rem;">Top Export Destinations</div>
+            {% if swiss_trade.exports %}
+            <table>
+              <thead>
+                <tr><th>Country</th><th style="text-align: right;">Value (USD)</th><th style="text-align: right;">Weight</th></tr>
+              </thead>
+              <tbody>
+                {% for r in swiss_trade.exports %}
+                <tr>
+                  <td>{{ r.country }}</td>
+                  <td style="text-align: right;">{{ r.value_usd }}</td>
+                  <td style="text-align: right;">{{ r.weight_kg }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <div class="meta">No export data available</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="meta" style="margin-top: 1rem;">
+          Source: UN Comtrade &middot; Switzerland is the world's largest gold refining hub, processing ~70% of global output
+        </div>
+      {% elif swiss_trade and swiss_trade.get('error') %}
+        <div class="error-msg">{{ swiss_trade.error }}</div>
+      {% else %}
+        <div class="error-msg">No data available</div>
+      {% endif %}
+    </div>
+
   </div>
 </body>
 </html>

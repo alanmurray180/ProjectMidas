@@ -406,6 +406,50 @@ def _fetch_macro_scorecard() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_swiss_gold_trade() -> dict | None:
+    try:
+        from midas.clients.swiss_trade import SwissGoldTradeClient
+
+        data = SwissGoldTradeClient().get_trade()
+        if not data["imports"] and not data["exports"]:
+            return {"error": "No Swiss gold trade data available"}
+
+        def _fmt_val(v):
+            if v >= 1e9:
+                return f"${v / 1e9:,.1f}B"
+            if v >= 1e6:
+                return f"${v / 1e6:,.0f}M"
+            return f"${v:,.0f}"
+
+        def _fmt_kg(v):
+            if v >= 1000:
+                return f"{v / 1000:,.1f}t"
+            return f"{v:,.0f} kg"
+
+        def _fmt_row(r):
+            return {
+                "country": r["country"],
+                "value_usd": _fmt_val(r["value_usd"]),
+                "weight_kg": _fmt_kg(r["weight_kg"]),
+                "raw_value": r["value_usd"],
+                "raw_weight": r["weight_kg"],
+            }
+
+        return {
+            "year": data["year"],
+            "imports": [_fmt_row(r) for r in data["imports"][:15]],
+            "exports": [_fmt_row(r) for r in data["exports"][:15]],
+            "total_import_usd": _fmt_val(data["total_import_usd"]),
+            "total_export_usd": _fmt_val(data["total_export_usd"]),
+            "total_import_kg": _fmt_kg(data["total_import_kg"]),
+            "total_export_kg": _fmt_kg(data["total_export_kg"]),
+        }
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(exc)}
+
+
 @app.route("/")
 def dashboard():
     period = request.args.get("range", "30d")
@@ -425,6 +469,7 @@ def dashboard():
     macro = _fetch_macro_scorecard()
     aggregate = _fetch_gold_etf_aggregate()
     wgc = _fetch_wgc_commentary()
+    swiss_trade = _fetch_swiss_gold_trade()
     return render_template(
         "dashboard.html",
         gold_price=gold_price,
@@ -438,6 +483,7 @@ def dashboard():
         macro=macro,
         aggregate=aggregate,
         wgc=wgc,
+        swiss_trade=swiss_trade,
         period=period,
         range_label=preset["label"],
     )
