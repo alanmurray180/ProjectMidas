@@ -218,47 +218,47 @@ def _scrape_gld_page_tonnes(html: str) -> Optional[float]:
 
 
 def _fetch_gld_tonnes_yahoo() -> list[dict]:
-    """Estimate GLD tonnes using the v8 chart API (same one powering volume/price).
+    """Estimate daily GLD tonnes from the v8 chart API for trend scoring.
 
-    Approach: GLD_price / gold_price ≈ oz_per_share, then
-    estimated_shares × oz_per_share / 32,150 ≈ tonnes.
+    Uses GLD_price / gold_price ≈ oz_per_share for each trading day,
+    then estimated_shares × oz_per_share / 32,150 ≈ tonnes.
+    Day-to-day changes in this ratio reflect GLD's premium/discount
+    to NAV, which is a leading indicator of creation/redemption.
     """
-    # 1) GLD price — same endpoint the volume/price signals use successfully
     try:
-        gld_data = _fetch_yahoo_chart("GLD", range_="5d")
+        gld_data = _fetch_yahoo_chart("GLD", range_="1mo")
     except Exception as exc:
         log.warning("Yahoo GLD chart failed: %s", exc)
         return []
     if not gld_data:
         log.warning("Yahoo GLD chart returned no data")
         return []
-    gld_price = gld_data[-1]["close"]
 
-    # 2) Gold price from futures (also v8 chart API)
-    gold_price = None
+    gold_by_date: dict = {}
     try:
-        gold_data = _fetch_yahoo_chart("GC=F", range_="5d")
-        if gold_data:
-            gold_price = gold_data[-1]["close"]
+        gold_data = _fetch_yahoo_chart("GC=F", range_="1mo")
+        gold_by_date = {r["date"]: r["close"] for r in gold_data}
     except Exception as exc:
         log.info("GC=F chart failed, will derive gold price from GLD: %s", exc)
 
-    if not gold_price or gold_price <= 0:
-        gold_price = gld_price / 0.0920
-        log.info("Derived gold price from GLD: $%.2f/oz", gold_price)
-
-    # 3) Compute tonnes estimate.
-    #    GLD shares outstanding fluctuates with creation/redemption.
-    #    Using a recent public figure gives an estimate within ~5-10%.
     _GLD_SHARES_APPROX = 278_000_000  # ~278M as of Q1 2025
-    oz_per_share = gld_price / gold_price
-    tonnes = _GLD_SHARES_APPROX * oz_per_share / _OZ_PER_TONNE
 
-    log.info(
-        "Yahoo GLD estimate: GLD=$%.2f, gold=$%.2f/oz, oz/sh=%.4f, ~%.0f t",
-        gld_price, gold_price, oz_per_share, tonnes,
-    )
-    return [{"date": gld_data[-1]["date"], "tonnes": round(tonnes, 2), "estimated": True}]
+    records: list[dict] = []
+    for r in gld_data:
+        gld_close = r["close"]
+        gold_close = gold_by_date.get(r["date"])
+        if not gold_close or gold_close <= 0:
+            gold_close = gld_close / 0.0920
+        oz_per_share = gld_close / gold_close
+        tonnes = _GLD_SHARES_APPROX * oz_per_share / _OZ_PER_TONNE
+        records.append({"date": r["date"], "tonnes": round(tonnes, 2), "estimated": True})
+
+    if records:
+        log.info(
+            "Yahoo GLD estimate: %d days, latest=%.1f t, first=%.1f t",
+            len(records), records[-1]["tonnes"], records[0]["tonnes"],
+        )
+    return records
 
 
 class GoldETFScorecard:
@@ -390,6 +390,7 @@ class GoldETFScorecard:
                 result["label"] = "Estimated (Yahoo)" if is_estimate else "N/A"
             return result
 
+        is_estimate = any(r.get("estimated") for r in records)
         tonnes = [r["tonnes"] for r in records]
         ra5 = _rolling_mean(tonnes, 5)
 
@@ -404,7 +405,7 @@ class GoldETFScorecard:
             }
 
         score = 1 if current_ra > prev_ra else -1
-        return {
+        result = {
             "score": score,
             "label": "Increasing" if score == 1 else "Decreasing",
             "current_5d_avg": round(current_ra, 2),
@@ -412,6 +413,9 @@ class GoldETFScorecard:
             "latest_tonnes": tonnes[-1],
             "latest_date": records[-1]["date"].isoformat(),
         }
+        if is_estimate:
+            result["estimated"] = True
+        return result
 
     # ------------------------------------------------------------------
     # Signal 2: composite volume vs 20-day MA
