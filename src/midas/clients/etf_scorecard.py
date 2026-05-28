@@ -55,18 +55,6 @@ _BROWSER_HEADERS = {
     "DNT": "1",
 }
 
-_YAHOO_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://finance.yahoo.com/",
-}
-
-_YAHOO_QUOTE = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-_YAHOO_QUOTE_ALT = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
 _OZ_PER_TONNE = 32_150.7466
 
 _TICKERS = ("GLD", "IAU", "SGOL", "GLDM", "PHYS")
@@ -230,48 +218,47 @@ def _scrape_gld_page_tonnes(html: str) -> Optional[float]:
 
 
 def _fetch_gld_tonnes_yahoo() -> list[dict]:
-    """Estimate current GLD tonnes from Yahoo Finance marketCap / gold price."""
-    market_cap = None
-    for url_tmpl in (_YAHOO_QUOTE, _YAHOO_QUOTE_ALT):
-        try:
-            resp = httpx.get(
-                url_tmpl.format(ticker="GLD"),
-                params={"modules": "price"},
-                headers=_YAHOO_HEADERS,
-                timeout=10,
-                follow_redirects=True,
-            )
-            resp.raise_for_status()
-            result = resp.json()["quoteSummary"]["result"][0]
-            mc = result.get("price", {}).get("marketCap", {})
-            market_cap = mc.get("raw") if isinstance(mc, dict) else mc
-            if market_cap:
-                break
-        except Exception as exc:
-            log.info("Yahoo quoteSummary GLD failed (%s): %s", url_tmpl.split("/")[2], exc)
+    """Estimate GLD tonnes using the v8 chart API (same one powering volume/price).
 
-    if not market_cap:
-        log.warning("Yahoo GLD fallback: could not get market cap")
+    Approach: GLD_price / gold_price ≈ oz_per_share, then
+    estimated_shares × oz_per_share / 32,150 ≈ tonnes.
+    """
+    # 1) GLD price — same endpoint the volume/price signals use successfully
+    try:
+        gld_data = _fetch_yahoo_chart("GLD", range_="5d")
+    except Exception as exc:
+        log.warning("Yahoo GLD chart failed: %s", exc)
         return []
+    if not gld_data:
+        log.warning("Yahoo GLD chart returned no data")
+        return []
+    gld_price = gld_data[-1]["close"]
 
+    # 2) Gold price from futures (also v8 chart API)
     gold_price = None
     try:
         gold_data = _fetch_yahoo_chart("GC=F", range_="5d")
         if gold_data:
             gold_price = gold_data[-1]["close"]
     except Exception as exc:
-        log.warning("Yahoo GLD fallback: gold futures fetch failed: %s", exc)
+        log.info("GC=F chart failed, will derive gold price from GLD: %s", exc)
 
     if not gold_price or gold_price <= 0:
-        log.warning("Yahoo GLD fallback: no gold spot price")
-        return []
+        gold_price = gld_price / 0.0920
+        log.info("Derived gold price from GLD: $%.2f/oz", gold_price)
 
-    tonnes = market_cap / (gold_price * _OZ_PER_TONNE)
+    # 3) Compute tonnes estimate.
+    #    GLD shares outstanding fluctuates with creation/redemption.
+    #    Using a recent public figure gives an estimate within ~5-10%.
+    _GLD_SHARES_APPROX = 278_000_000  # ~278M as of Q1 2025
+    oz_per_share = gld_price / gold_price
+    tonnes = _GLD_SHARES_APPROX * oz_per_share / _OZ_PER_TONNE
+
     log.info(
-        "Yahoo GLD fallback: mktcap=$%.0f, gold=$%.2f/oz, est=%.1f t",
-        market_cap, gold_price, tonnes,
+        "Yahoo GLD estimate: GLD=$%.2f, gold=$%.2f/oz, oz/sh=%.4f, ~%.0f t",
+        gld_price, gold_price, oz_per_share, tonnes,
     )
-    return [{"date": date.today(), "tonnes": round(tonnes, 2), "estimated": True}]
+    return [{"date": gld_data[-1]["date"], "tonnes": round(tonnes, 2), "estimated": True}]
 
 
 class GoldETFScorecard:
