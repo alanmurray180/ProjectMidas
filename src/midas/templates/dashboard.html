@@ -619,6 +619,113 @@
         <div class="error-msg">No data available</div>
       {% endif %}
     </div>
+    <!-- Macro Scorecard -->
+    <div class="card full-width">
+      <h2>Macro Scorecard</h2>
+      {% if macro and not macro.get('error') %}
+        <!-- Overall score banner -->
+        <div style="display: flex; align-items: center; gap: 1.2rem; margin-bottom: 1.2rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid {% if macro.positive %}var(--green){% elif macro.negative %}var(--red){% else %}var(--gold){% endif %};">
+          <div>
+            <div class="stat-label">Overall Signal</div>
+            <div style="font-size: 2.4rem; font-weight: 700; color: {% if macro.positive %}var(--green){% elif macro.negative %}var(--red){% else %}var(--gold){% endif %};">
+              {% if macro.total_score > 0 %}+{% endif %}{{ macro.total_score }}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 1.2rem; font-weight: 600; color: {% if macro.positive %}var(--green){% elif macro.negative %}var(--red){% else %}var(--gold){% endif %};">
+              {{ macro.score_label }}
+            </div>
+            <div class="meta">Sum of 4 binary signals &middot; range &minus;4 to +4 &middot; scored for gold</div>
+          </div>
+        </div>
+
+        <!-- Four signal cards -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+          <!-- Signal 1: DXY -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">DXY vs 20d MA</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if macro.dxy.score == 1 %}var(--green){% elif macro.dxy.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if macro.dxy.score == 1 %}+1{% elif macro.dxy.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if macro.dxy.score == 1 %}var(--green){% elif macro.dxy.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ macro.dxy.label }}
+            </div>
+            {% if macro.dxy.latest is defined %}
+            <div class="meta">DXY: {{ macro.dxy.latest }}</div>
+            <div class="meta">20d MA: {{ macro.dxy.ma_20d }}</div>
+            <div class="meta" style="margin-top: 0.3rem; font-style: italic; color: var(--text-muted);">{{ macro.dxy.commentary }}</div>
+            {% endif %}
+          </div>
+
+          <!-- Signal 2: 10Y Real Yield -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">10Y Real Yield (5d)</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if macro.yield_10y.score == 1 %}var(--green){% elif macro.yield_10y.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if macro.yield_10y.score == 1 %}+1{% elif macro.yield_10y.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if macro.yield_10y.score == 1 %}var(--green){% elif macro.yield_10y.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ macro.yield_10y.label }}
+            </div>
+            {% if macro.yield_10y.latest is defined %}
+            <div class="meta">Latest: {{ macro.yield_10y.latest }}</div>
+            <div class="meta">5d avg: {{ macro.yield_10y.current_5d_avg }}</div>
+            <div class="meta">Prev 5d: {{ macro.yield_10y.prev_5d_avg }}</div>
+            <div class="meta" style="margin-top: 0.3rem; font-style: italic; color: var(--text-muted);">{{ macro.yield_10y.commentary }}</div>
+            {% endif %}
+          </div>
+
+          <!-- Signal 3: CPI -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">US CPI YoY</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if macro.cpi.score == 1 %}var(--green){% elif macro.cpi.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if macro.cpi.score == 1 %}+1{% elif macro.cpi.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if macro.cpi.score == 1 %}var(--green){% elif macro.cpi.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ macro.cpi.label }}
+            </div>
+            {% if macro.cpi.latest is defined %}
+            <div class="meta">Latest: {{ macro.cpi.latest }}</div>
+            <div class="meta">Previous: {{ macro.cpi.previous }}</div>
+            <div class="meta">Change: {{ macro.cpi.change }} pp</div>
+            <div class="meta" style="margin-top: 0.3rem; font-style: italic; color: var(--text-muted);">{{ macro.cpi.commentary }}</div>
+            {% endif %}
+          </div>
+
+          <!-- Signal 4: VIX -->
+          <div class="stat" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <span class="stat-label">VIX vs 20d MA</span>
+              <span style="font-size: 1.4rem; font-weight: 700; color: {% if macro.vix.score == 1 %}var(--green){% elif macro.vix.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+                {% if macro.vix.score == 1 %}+1{% elif macro.vix.score == -1 %}-1{% else %}0{% endif %}
+              </span>
+            </div>
+            <div style="font-weight: 600; margin-bottom: 0.4rem; color: {% if macro.vix.score == 1 %}var(--green){% elif macro.vix.score == -1 %}var(--red){% else %}var(--text-muted){% endif %};">
+              {{ macro.vix.label }}
+            </div>
+            {% if macro.vix.latest is defined %}
+            <div class="meta">VIX: {{ macro.vix.latest }}</div>
+            <div class="meta">20d MA: {{ macro.vix.ma_20d }}</div>
+            <div class="meta" style="margin-top: 0.3rem; font-style: italic; color: var(--text-muted);">{{ macro.vix.commentary }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="meta" style="margin-top: 1rem;">
+          DXY &amp; VIX from Yahoo Finance &middot; real yield (DFII10) &amp; CPI from FRED &middot; all signals scored for gold (+1 bullish / &minus;1 bearish)
+        </div>
+      {% elif macro and macro.get('error') %}
+        <div class="error-msg">{{ macro.error }}</div>
+      {% else %}
+        <div class="error-msg">No data available</div>
+      {% endif %}
+    </div>
+
   </div>
 </body>
 </html>

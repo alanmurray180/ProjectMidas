@@ -378,6 +378,34 @@ def _fetch_wgc_commentary() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_macro_scorecard() -> dict | None:
+    try:
+        from midas.clients.macro_scorecard import MacroScorecard
+
+        data = MacroScorecard().compute()
+        score = data["total_score"]
+        labels = {
+            4: "Strong Bullish", 3: "Bullish", 2: "Moderately Bullish",
+            1: "Slightly Bullish", 0: "Neutral",
+            -1: "Slightly Bearish", -2: "Moderately Bearish",
+            -3: "Bearish", -4: "Strong Bearish",
+        }
+        return {
+            "total_score": score,
+            "score_label": labels.get(score, "Neutral"),
+            "positive": score > 0,
+            "negative": score < 0,
+            "dxy": data["dxy"],
+            "yield_10y": data["yield_10y"],
+            "cpi": data["cpi"],
+            "vix": data["vix"],
+        }
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(exc)}
+
+
 @app.route("/")
 def dashboard():
     period = request.args.get("range", "30d")
@@ -394,6 +422,7 @@ def dashboard():
     vix = _fetch_vix(yr)
     cot = _fetch_cot_positions()
     etf = _fetch_etf_scorecard()
+    macro = _fetch_macro_scorecard()
     aggregate = _fetch_gold_etf_aggregate()
     wgc = _fetch_wgc_commentary()
     return render_template(
@@ -406,6 +435,7 @@ def dashboard():
         vix=vix,
         cot=cot,
         etf=etf,
+        macro=macro,
         aggregate=aggregate,
         wgc=wgc,
         period=period,
