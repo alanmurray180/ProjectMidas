@@ -4,6 +4,7 @@ from .dxy import DXYClient
 from .etf import GoldETFClient
 from .etf_scorecard import GoldETFScorecard
 from .fred import FREDClient
+from .macro_scorecard import MacroScorecard
 from .gold_silver import GoldSilverRatioClient
 from .major_etfs import MajorETFsClient
 from .vix import VIXClient
@@ -16,6 +17,7 @@ __all__ = [
     "GoldETFClient",
     "GoldETFScorecard",
     "FREDClient",
+    "MacroScorecard",
     "GoldSilverRatioClient",
     "MajorETFsClient",
     "VIXClient",
