@@ -435,10 +435,20 @@ def _fetch_swiss_gold_trade() -> dict | None:
                 "raw_weight": r["weight_kg"],
             }
 
+        by_type = []
+        for t in data.get("by_type", []):
+            by_type.append({
+                "label": t["label"],
+                "import_kg": _fmt_kg(t["import_kg"]),
+                "export_kg": _fmt_kg(t["export_kg"]),
+            })
+
         return {
             "year": data["year"],
+            "source": data.get("source", ""),
             "imports": [_fmt_row(r) for r in data["imports"][:15]],
             "exports": [_fmt_row(r) for r in data["exports"][:15]],
+            "by_type": by_type,
             "total_import_usd": _fmt_val(data["total_import_usd"]),
             "total_export_usd": _fmt_val(data["total_export_usd"]),
             "total_import_kg": _fmt_kg(data["total_import_kg"]),

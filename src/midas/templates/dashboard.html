@@ -728,10 +728,10 @@
 
     <!-- Swiss Gold Trade -->
     <div class="card full-width">
-      <h2>Swiss Gold Trade by Country (HS 7108)</h2>
+      <h2>Swiss Gold Trade by Country (HS 7108.1200)</h2>
       {% if swiss_trade and not swiss_trade.get('error') %}
         <div class="meta" style="margin-bottom: 1rem;">
-          Annual data for {{ swiss_trade.year }} &middot; HS heading 7108 (gold, unwrought or semi-manufactured)
+          {{ swiss_trade.year }} annual totals &middot; gold in unwrought form (bars) &middot; tariff 7108.1200
         </div>
         <div class="stat-grid" style="margin-bottom: 1.2rem;">
           <div class="stat">
@@ -745,6 +745,24 @@
             <div class="meta">{{ swiss_trade.total_export_kg }}</div>
           </div>
         </div>
+
+        {% if swiss_trade.by_type %}
+        <div class="stat-label" style="margin-bottom: 0.5rem;">By gold type</div>
+        <table style="margin-bottom: 1.2rem;">
+          <thead>
+            <tr><th>Type</th><th style="text-align: right;">Imports</th><th style="text-align: right;">Exports</th></tr>
+          </thead>
+          <tbody>
+            {% for t in swiss_trade.by_type %}
+            <tr>
+              <td>{{ t.label }}</td>
+              <td style="text-align: right;">{{ t.import_kg }}</td>
+              <td style="text-align: right;">{{ t.export_kg }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
           <!-- Imports by country -->
@@ -795,7 +813,11 @@
         </div>
 
         <div class="meta" style="margin-top: 1rem;">
-          Source: UN Comtrade &middot; Switzerland is the world's largest gold refining hub, processing ~70% of global output
+          Source: {{ swiss_trade.source }}
+          {% if swiss_trade.source == 'BAZG' %}
+            (Federal Office for Customs and Border Security)
+          {% endif %}
+          &middot; Switzerland refines ~70% of the world's gold
         </div>
       {% elif swiss_trade and swiss_trade.get('error') %}
         <div class="error-msg">{{ swiss_trade.error }}</div>
