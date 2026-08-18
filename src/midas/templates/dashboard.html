@@ -156,6 +156,15 @@
       background: var(--gold);
       color: #1a1a2e;
     }
+    footer {
+      max-width: 1400px;
+      margin: 2rem auto 1rem;
+      padding: 1rem 1.5rem 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
@@ -163,8 +172,8 @@
     <h1>Project Midas</h1>
     <span>Gold Trading Dashboard</span>
     <div class="range-toggle">
-      <a href="/?range=30d" class="{% if period == '30d' %}active{% endif %}">30D</a>
-      <a href="/?range=12m" class="{% if period == '12m' %}active{% endif %}">12M</a>
+      <a href="{{ links['30d'] }}" class="{% if period == '30d' %}active{% endif %}">30D</a>
+      <a href="{{ links['12m'] }}" class="{% if period == '12m' %}active{% endif %}">12M</a>
     </div>
   </header>
 
@@ -727,5 +736,9 @@
     </div>
 
   </div>
+
+  <footer>
+    Data as of {{ generated_at }} &middot; rebuilt hourly on UK working days, 08:30&ndash;17:30
+  </footer>
 </body>
 </html>
