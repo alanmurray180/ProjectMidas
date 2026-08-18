@@ -8,7 +8,7 @@ load_dotenv()
 METALPRICEAPI_KEY: str = os.getenv("METALPRICEAPI_KEY", "")
 METALPRICEAPI_BASE: str = "https://api.metalpriceapi.com/v1"
 
-FRED_API_KEY: str = os.getenv("FRED_API_KEY", "3166ea6cf00acf749f1a635b63cc3dca")
+FRED_API_KEY: str = os.getenv("FRED_API_KEY", "")
 FRED_BASE: str = "https://api.stlouisfed.org/fred"
 
 CFTC_BASE: str = "https://www.cftc.gov/files/dea/history"

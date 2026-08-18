@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import datetime, timezone
 
 from flask import Flask, render_template, request
 
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, template_folder="templates")
+
+# Link targets for the 30D/12M toggle.  The Flask app serves both variants
+# from one route via a query string; the static build emits them as two
+# separate files, so the targets differ per rendering mode.
+SERVED_LINKS = {"30d": "/?range=30d", "12m": "/?range=12m"}
+STATIC_LINKS = {"30d": "./", "12m": "./12m.html"}
 
 # Maps the user-facing toggle value to parameters for each data source.
 _RANGE_PRESETS = {
@@ -406,41 +412,51 @@ def _fetch_macro_scorecard() -> dict | None:
         return {"error": str(exc)}
 
 
-@app.route("/")
-def dashboard():
-    period = request.args.get("range", "30d")
+def build_context(period: str = "30d", links: dict | None = None) -> dict:
+    """Gather every dashboard panel for *period* into a template context.
+
+    Each ``_fetch_*`` helper traps its own exceptions and returns an
+    ``{"error": ...}`` payload, so one dead upstream degrades a single card
+    rather than the whole page.
+    """
     if period not in _RANGE_PRESETS:
         period = "30d"
     preset = _RANGE_PRESETS[period]
     yr = preset["yahoo"]
 
-    gold_price = _fetch_gold_price()
-    dxy = _fetch_dxy(yr)
-    gsr = _fetch_gold_silver_ratio(yr)
-    real_yield = _fetch_real_yield(preset["fred_days"])
-    cpi = _fetch_cpi(preset["cpi_months"])
-    vix = _fetch_vix(yr)
-    cot = _fetch_cot_positions()
-    etf = _fetch_etf_scorecard()
-    macro = _fetch_macro_scorecard()
-    aggregate = _fetch_gold_etf_aggregate()
-    wgc = _fetch_wgc_commentary()
-    return render_template(
-        "dashboard.html",
-        gold_price=gold_price,
-        dxy=dxy,
-        gsr=gsr,
-        real_yield=real_yield,
-        cpi=cpi,
-        vix=vix,
-        cot=cot,
-        etf=etf,
-        macro=macro,
-        aggregate=aggregate,
-        wgc=wgc,
-        period=period,
-        range_label=preset["label"],
-    )
+    return {
+        "gold_price": _fetch_gold_price(),
+        "dxy": _fetch_dxy(yr),
+        "gsr": _fetch_gold_silver_ratio(yr),
+        "real_yield": _fetch_real_yield(preset["fred_days"]),
+        "cpi": _fetch_cpi(preset["cpi_months"]),
+        "vix": _fetch_vix(yr),
+        "cot": _fetch_cot_positions(),
+        "etf": _fetch_etf_scorecard(),
+        "macro": _fetch_macro_scorecard(),
+        "aggregate": _fetch_gold_etf_aggregate(),
+        "wgc": _fetch_wgc_commentary(),
+        "period": period,
+        "range_label": preset["label"],
+        "links": links or SERVED_LINKS,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+
+def render_dashboard(period: str = "30d", links: dict | None = None) -> str:
+    """Render the dashboard to an HTML string.
+
+    Used by the static site build, which has no request to render inside of,
+    so it supplies its own application context.
+    """
+    with app.app_context():
+        return render_template("dashboard.html", **build_context(period, links))
+
+
+@app.route("/")
+def dashboard():
+    period = request.args.get("range", "30d")
+    return render_template("dashboard.html", **build_context(period))
 
 
 if __name__ == "__main__":

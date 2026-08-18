@@ -1,0 +1,98 @@
+name: Build and deploy dashboard
+
+on:
+  schedule:
+    # Cron is UTC-only and has no DST handling, so this is the union of the
+    # BST and GMT windows for 08:30-17:30 UK.  The `guard` job below trims
+    # whichever end is an hour out for the offset currently in effect.
+    #   BST (UTC+1): 07:30-16:30 UTC
+    #   GMT (UTC+0): 08:30-17:30 UTC
+    - cron: "30 7-17 * * 1-5"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two builds race to deploy; let a running build finish rather
+# than cancelling it, so a scheduled refresh is not lost to a manual run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Check UK market hours
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        run: |
+          set -euo pipefail
+
+          # Manual runs and pushes always build; only cron is time-gated.
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "event=${{ github.event_name }}: building unconditionally"
+            exit 0
+          fi
+
+          # 10# forces base-10 so 0830 is not read as octal.
+          hhmm=$((10#$(TZ=Europe/London date +%H%M)))
+          dow=$(TZ=Europe/London date +%u)
+          now=$(TZ=Europe/London date +'%a %Y-%m-%d %H:%M %Z')
+
+          # Accept the whole 08:00-17:59 UK band rather than the exact :30
+          # marks: scheduled runs are frequently delayed by GitHub, and a
+          # slipped 17:30 must not be discarded for arriving at 17:52.
+          if [ "$dow" -le 5 ] && [ "$hhmm" -ge 800 ] && [ "$hhmm" -lt 1800 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "$now is inside UK market hours: building"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "$now is outside UK market hours: skipping"
+          fi
+
+  build:
+    name: Build static site
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Render dashboard
+        env:
+          METALPRICEAPI_KEY: ${{ secrets.METALPRICEAPI_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
+        run: python scripts/build_static.py dist
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
