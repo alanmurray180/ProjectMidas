@@ -1,0 +1,39 @@
+name: Check data sources
+
+# Fetches every upstream and reports which panels have data, without
+# rendering or deploying anything.  Runs on any branch, so a change to a
+# client can be verified against the live APIs before it reaches the
+# published dashboard.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Probe upstreams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Probe data sources
+        env:
+          METALPRICEAPI_KEY: ${{ secrets.METALPRICEAPI_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
+          # Reporting only: never fail this job on unhealthy upstreams,
+          # since telling us which ones are down is the whole point.
+          MIDAS_MAX_FAILED_PANELS: "99"
+        run: python scripts/build_static.py --check

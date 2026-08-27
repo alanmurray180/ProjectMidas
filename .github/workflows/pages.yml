@@ -3,11 +3,14 @@ name: Build and deploy dashboard
 on:
   schedule:
     # Cron is UTC-only and has no DST handling, so this is the union of the
-    # BST and GMT windows for 08:30-17:30 UK.  The `guard` job below trims
-    # whichever end is an hour out for the offset currently in effect.
-    #   BST (UTC+1): 07:30-16:30 UTC
-    #   GMT (UTC+0): 08:30-17:30 UTC
-    - cron: "30 7-17 * * 1-5"
+    # BST and GMT windows for the UK working day.  The `guard` job below
+    # trims whichever end is an hour out for the offset currently in effect.
+    #   BST (UTC+1): 07:xx-16:xx UTC
+    #   GMT (UTC+0): 08:xx-17:xx UTC
+    # Minute 23 rather than :00 or :30 — GitHub queues scheduled runs and
+    # the round numbers are the congested ones, which was costing us 25-40
+    # minutes of delay per run and dropped slots at busy times.
+    - cron: "23 7-17 * * 1-5"
   workflow_dispatch:
   push:
     branches: [main]
