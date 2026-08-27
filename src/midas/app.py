@@ -35,6 +35,73 @@ _RANGE_PRESETS = {
     },
 }
 
+# The panels the dashboard renders, in display order, mapped to the context
+# key that is only present once that panel actually has data.  Every
+# ``_fetch_*`` helper traps its own exceptions, so a panel failing is
+# invisible unless we inspect the payload — which is what this drives.
+PANELS: tuple[tuple[str, str, str], ...] = (
+    ("gold_price", "Gold spot price", "price"),
+    ("dxy", "Dollar index", "latest"),
+    ("gsr", "Gold/silver ratio", "latest"),
+    ("real_yield", "10Y real yield", "latest"),
+    ("cpi", "CPI year-on-year", "latest"),
+    ("vix", "VIX", "latest"),
+    ("cot", "CFTC positioning", "report_date"),
+    ("etf", "ETF scorecard", "total_score"),
+    ("macro", "Macro scorecard", "total_score"),
+    ("aggregate", "Gold ETF aggregate", "holdings"),
+    ("wgc", "WGC commentary", "title"),
+)
+
+# Panels that legitimately have nothing to show some of the time.  The WGC
+# publishes monthly, so an absent write-up is not a fault.
+_OPTIONAL_PANELS = frozenset({"wgc"})
+
+
+def _panel_state(name: str, value: object) -> str:
+    """Classify one panel as ``ok``, ``degraded`` or ``failed``."""
+    if value is None:
+        return "degraded" if name in _OPTIONAL_PANELS else "failed"
+    if not isinstance(value, dict):
+        return "failed"
+    if value.get("error"):
+        return "failed"
+
+    required = dict((n, k) for n, _, k in PANELS)[name]
+    payload = value.get(required)
+    if payload is None or payload == "":
+        return "degraded" if name in _OPTIONAL_PANELS else "failed"
+    # Panels backed by a list (the ETF aggregate) are only useful populated.
+    if isinstance(payload, (list, tuple)) and not payload:
+        return "failed"
+
+    # The ETF scorecard still renders with a missing leg, but a leg scored
+    # "N/A" means one of its three upstreams went dark.
+    if name == "etf":
+        legs = (value.get("tonnes"), value.get("volume"), value.get("price"))
+        if any(
+            isinstance(leg, dict) and leg.get("label") in (None, "N/A")
+            for leg in legs
+        ):
+            return "degraded"
+    return "ok"
+
+
+def panel_health(context: dict) -> dict:
+    """Summarise which dashboard panels actually came back with data."""
+    detail = {
+        name: {"label": label, "state": _panel_state(name, context.get(name))}
+        for name, label, _ in PANELS
+    }
+    states = [d["state"] for d in detail.values()]
+    return {
+        "detail": detail,
+        "ok": states.count("ok"),
+        "degraded": states.count("degraded"),
+        "failed": states.count("failed"),
+        "total": len(states),
+    }
+
 
 def _fetch_gold_price() -> dict | None:
     try:
@@ -424,7 +491,7 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
     preset = _RANGE_PRESETS[period]
     yr = preset["yahoo"]
 
-    return {
+    context = {
         "gold_price": _fetch_gold_price(),
         "dxy": _fetch_dxy(yr),
         "gsr": _fetch_gold_silver_ratio(yr),
@@ -436,21 +503,30 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
         "macro": _fetch_macro_scorecard(),
         "aggregate": _fetch_gold_etf_aggregate(),
         "wgc": _fetch_wgc_commentary(),
-        "period": period,
-        "range_label": preset["label"],
-        "links": links or SERVED_LINKS,
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }
+    context.update(
+        period=period,
+        range_label=preset["label"],
+        links=links or SERVED_LINKS,
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        health=panel_health(context),
+    )
+    return context
+
+
+def render_context(context: dict) -> str:
+    """Render a prepared context to HTML, supplying an application context.
+
+    Split out from :func:`render_dashboard` so the static build can inspect
+    the panel health it is about to publish.
+    """
+    with app.app_context():
+        return render_template("dashboard.html", **context)
 
 
 def render_dashboard(period: str = "30d", links: dict | None = None) -> str:
-    """Render the dashboard to an HTML string.
-
-    Used by the static site build, which has no request to render inside of,
-    so it supplies its own application context.
-    """
-    with app.app_context():
-        return render_template("dashboard.html", **build_context(period, links))
+    """Render the dashboard to an HTML string."""
+    return render_context(build_context(period, links))
 
 
 @app.route("/")

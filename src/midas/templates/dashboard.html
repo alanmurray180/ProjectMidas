@@ -163,7 +163,15 @@
       border-top: 1px solid rgba(255, 255, 255, 0.08);
       text-align: center;
       font-size: 0.8rem;
+      line-height: 1.7;
       color: var(--text-muted);
+    }
+    .health-ok { color: var(--text-muted); }
+    .health-warn { color: var(--gold); }
+    .health-bad { color: #e0685f; }
+    .health-detail {
+      font-size: 0.75rem;
+      opacity: 0.75;
     }
   </style>
 </head>
@@ -739,6 +747,22 @@
 
   <footer>
     Data as of {{ generated_at }} &middot; rebuilt hourly on UK working days, 08:30&ndash;17:30
+    {% if health %}
+      <br>
+      <span class="{% if health.failed %}health-bad{% elif health.degraded %}health-warn{% else %}health-ok{% endif %}">
+        {{ health.ok }}/{{ health.total }} sources live
+        {%- if health.degraded %} &middot; {{ health.degraded }} degraded{% endif %}
+        {%- if health.failed %} &middot; {{ health.failed }} unavailable{% endif %}
+      </span>
+      {% if health.failed or health.degraded %}
+        <br>
+        <span class="health-detail">
+          {%- for name, panel in health.detail.items() if panel.state != 'ok' -%}
+            {{ panel.label }} ({{ panel.state }}){{ ", " if not loop.last }}
+          {%- endfor -%}
+        </span>
+      {% endif %}
+    {% endif %}
   </footer>
 </body>
 </html>
