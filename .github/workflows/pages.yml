@@ -3,13 +3,16 @@ name: Build and deploy dashboard
 on:
   schedule:
     # Cron is UTC-only and has no DST handling, so this is the union of the
-    # BST and GMT windows for the UK working day.  The `guard` job below
-    # trims whichever end is an hour out for the offset currently in effect.
-    #   BST (UTC+1): 07:xx-16:xx UTC
-    #   GMT (UTC+0): 08:xx-17:xx UTC
+    # BST and GMT windows for the UK working day:
+    #   BST (UTC+1): 08:23-18:23 UK
+    #   GMT (UTC+0): 07:23-17:23 UK
+    # One of those edge slots falls outside 08:30-17:30 depending on the
+    # offset in effect.  We used to drop it with a guard job; we no longer
+    # do, because GitHub's delivery of this schedule turned out to be far
+    # less reliable than the DST edge is costly.  See the build job.
+    #
     # Minute 23 rather than :00 or :30 — GitHub queues scheduled runs and
-    # the round numbers are the congested ones, which was costing us 25-40
-    # minutes of delay per run and dropped slots at busy times.
+    # the round numbers are the congested ones.
     - cron: "23 7-17 * * 1-5"
   workflow_dispatch:
   push:
@@ -27,45 +30,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  guard:
-    name: Check UK market hours
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - id: check
-        run: |
-          set -euo pipefail
-
-          # Manual runs and pushes always build; only cron is time-gated.
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "event=${{ github.event_name }}: building unconditionally"
-            exit 0
-          fi
-
-          # 10# forces base-10 so 0830 is not read as octal.
-          hhmm=$((10#$(TZ=Europe/London date +%H%M)))
-          dow=$(TZ=Europe/London date +%u)
-          now=$(TZ=Europe/London date +'%a %Y-%m-%d %H:%M %Z')
-
-          # Accept the whole 08:00-17:59 UK band rather than the exact :30
-          # marks: scheduled runs are frequently delayed by GitHub, and a
-          # slipped 17:30 must not be discarded for arriving at 17:52.
-          if [ "$dow" -le 5 ] && [ "$hhmm" -ge 800 ] && [ "$hhmm" -lt 1800 ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "$now is inside UK market hours: building"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "$now is outside UK market hours: skipping"
-          fi
-
   build:
     name: Build static site
-    needs: guard
-    if: needs.guard.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
+      # There was a guard job here that skipped any scheduled run landing
+      # outside 08:00-17:59 UK, so that whichever cron slot the current DST
+      # offset put outside the working day was dropped.  It was written on
+      # the assumption that GitHub delivers a scheduled run within about
+      # half an hour of its slot.
+      #
+      # It does not.  Delivery for this repo stopped entirely for a day and
+      # then resumed 7.5 hours late, at 00:58 UTC, and the guard duly threw
+      # that build away — turning a late refresh into no refresh at all, on
+      # exactly the deliveries we were still getting.  Since Actions is free
+      # on a public repo, the guard was trading a real refresh for one saved
+      # build a day.  Now every delivered slot builds, whenever it arrives,
+      # and the footer timestamp reports the true age of the data.
+      - name: Report schedule context
+        run: |
+          set -euo pipefail
+          echo "event:   ${{ github.event_name }}"
+          echo "UK time: $(TZ=Europe/London date +'%a %Y-%m-%d %H:%M %Z')"
+          echo "UTC:     $(date -u +'%Y-%m-%d %H:%M')"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
