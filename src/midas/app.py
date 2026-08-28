@@ -17,6 +17,16 @@ app = Flask(__name__, template_folder="templates")
 SERVED_LINKS = {"30d": "/?range=30d", "12m": "/?range=12m"}
 STATIC_LINKS = {"30d": "./", "12m": "./12m.html"}
 
+# The published page is static, so it cannot rebuild itself — a button in
+# the page would need a GitHub token, and the site is public.  These link
+# to the workflows instead, where "Run workflow" is two clicks: one to
+# rebuild and publish, one to probe the upstreams without deploying.
+_ACTIONS = "https://github.com/alanmurray180/ProjectMidas/actions/workflows"
+WORKFLOW_LINKS = {
+    "rebuild": f"{_ACTIONS}/pages.yml",
+    "check_sources": f"{_ACTIONS}/health.yml",
+}
+
 # Maps the user-facing toggle value to parameters for each data source.
 _RANGE_PRESETS = {
     "30d": {
@@ -513,11 +523,16 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
         "aggregate": _fetch_gold_etf_aggregate(),
         "wgc": _fetch_wgc_commentary(),
     }
+    generated = datetime.now(timezone.utc)
     context.update(
         period=period,
         range_label=preset["label"],
         links=links or SERVED_LINKS,
-        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        workflows=WORKFLOW_LINKS,
+        generated_at=generated.strftime("%Y-%m-%d %H:%M UTC"),
+        # Machine-readable twin of generated_at.  The page has no server to
+        # ask how old it is, so it works its own age out from this.
+        generated_at_iso=generated.replace(microsecond=0).isoformat(),
         health=panel_health(context),
     )
     return context

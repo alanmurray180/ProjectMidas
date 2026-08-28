@@ -173,6 +173,25 @@
       font-size: 0.75rem;
       opacity: 0.75;
     }
+    footer a {
+      color: var(--gold);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(212, 175, 55, 0.4);
+    }
+    footer a:hover { border-bottom-style: solid; }
+    /* Age of the data.  Only escalated during the hours it should be
+       refreshing — a Monday morning page is legitimately old, and colouring
+       every weekend red just teaches you to ignore the warning. */
+    #age-line { font-weight: 500; }
+    .age-fresh { color: var(--text-muted); }
+    .age-stale {
+      color: var(--gold);
+    }
+    .age-very-stale {
+      color: #e0685f;
+    }
+    .age-stale #age-rel,
+    .age-very-stale #age-rel { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -746,7 +765,14 @@
   </div>
 
   <footer>
-    Data as of {{ generated_at }} &middot; rebuilt hourly on UK working days, 08:30&ndash;17:30
+    <div id="age-line" class="age-fresh">
+      Data as of
+      <time id="build-time" datetime="{{ generated_at_iso }}">{{ generated_at }}</time>
+      <span id="age-rel"></span>
+    </div>
+    Rebuilt hourly on UK working days &middot;
+    <a href="{{ workflows.rebuild }}" target="_blank" rel="noopener">rebuild now</a> &middot;
+    <a href="{{ workflows.check_sources }}" target="_blank" rel="noopener">check sources</a>
     {% if health %}
       <br>
       <span class="{% if health.failed %}health-bad{% elif health.degraded %}health-warn{% else %}health-ok{% endif %}">
@@ -764,5 +790,89 @@
       {% endif %}
     {% endif %}
   </footer>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var STALE_MINUTES = 120;        // ~2 missed hourly rebuilds
+    var VERY_STALE_MINUTES = 720;   // most of a working day
+    var POLL_MS = 5 * 60 * 1000;
+
+    var timeEl = document.getElementById("build-time");
+    var lineEl = document.getElementById("age-line");
+    var relEl = document.getElementById("age-rel");
+    if (!timeEl || !lineEl || !relEl) { return; }
+
+    var builtAt = new Date(timeEl.getAttribute("datetime"));
+    if (isNaN(builtAt.getTime())) { return; }
+
+    function describe(minutes) {
+      if (minutes < 2) { return "just now"; }
+      if (minutes < 60) { return minutes + " minutes ago"; }
+      var hours = Math.floor(minutes / 60);
+      if (hours < 24) {
+        return hours + (hours === 1 ? " hour ago" : " hours ago");
+      }
+      var days = Math.floor(hours / 24);
+      return days + (days === 1 ? " day ago" : " days ago");
+    }
+
+    // Is the schedule supposed to be refreshing right now? Asked in London
+    // time so it stays correct across BST and GMT without any date maths.
+    function inRefreshWindow() {
+      try {
+        var parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/London",
+          weekday: "short",
+          hour: "2-digit",
+          hour12: false
+        }).formatToParts(new Date());
+        var got = {};
+        parts.forEach(function (p) { got[p.type] = p.value; });
+        var hour = parseInt(got.hour, 10) % 24;
+        var weekday = got.weekday;
+        var isWeekend = weekday === "Sat" || weekday === "Sun";
+        return !isWeekend && hour >= 8 && hour < 18;
+      } catch (err) {
+        return true;  // no timezone data: prefer warning over silence
+      }
+    }
+
+    function render() {
+      var minutes = Math.floor((Date.now() - builtAt.getTime()) / 60000);
+      if (minutes < 0) { minutes = 0; }
+      relEl.textContent = "(" + describe(minutes) + ")";
+
+      var cls = "age-fresh";
+      if (inRefreshWindow()) {
+        if (minutes >= VERY_STALE_MINUTES) {
+          cls = "age-very-stale";
+        } else if (minutes >= STALE_MINUTES) {
+          cls = "age-stale";
+        }
+      }
+      lineEl.className = cls;
+    }
+
+    // The page cannot rebuild itself, but it can notice when a rebuild has
+    // been published and pick it up without anyone hitting reload.
+    function pollForNewBuild() {
+      fetch("health.json?t=" + Date.now(), { cache: "no-store" })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (data) {
+          if (data && data.generated_at &&
+              data.generated_at !== timeEl.getAttribute("datetime")) {
+            location.reload();
+          }
+        })
+        .catch(function () { /* offline, or served without health.json */ });
+    }
+
+    render();
+    setInterval(render, 60000);
+    setInterval(pollForNewBuild, POLL_MS);
+  })();
+  </script>
 </body>
 </html>

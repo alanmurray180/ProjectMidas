@@ -119,7 +119,9 @@ def main(argv: list[str] | None = None) -> int:
         context = build_context(period, links=STATIC_LINKS)
         rendered[filename] = render_context(context)
         if period == _HEALTH_PERIOD:
-            health = context["health"]
+            # Carries the build stamp so a page already open can poll this
+            # file, notice a newer build has been published, and reload.
+            health = dict(context["health"], generated_at=context["generated_at_iso"])
 
     assert health is not None, f"{_HEALTH_PERIOD} must be among {list(PAGES)}"
     report_health(health)
