@@ -84,6 +84,15 @@ def _panel_state(name: str, value: object) -> str:
             for leg in legs
         ):
             return "degraded"
+
+    # A populated fund list is not on its own worth anything: the aggregate
+    # exists to total tonnage, and Yahoo happily returns every fund with no
+    # size field at all.  Checking only that holdings existed reported this
+    # as healthy while the card showed ten funds and no tonnes.
+    if name == "aggregate" and not any(
+        row.get("tonnes") for row in payload if isinstance(row, dict)
+    ):
+        return "degraded"
     return "ok"
 
 

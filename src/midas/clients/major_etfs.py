@@ -143,7 +143,7 @@ class YahooSession:
         return self._crumb
 
     def quote_summary(self, ticker: str) -> Optional[dict]:
-        params = {"modules": "price,defaultKeyStatistics"}
+        params = {"modules": "price,defaultKeyStatistics,summaryDetail"}
         crumb = self._get_crumb()
         if crumb:
             params["crumb"] = crumb
@@ -206,6 +206,47 @@ def _load_usd_fx_rate(
     return None
 
 
+def _fund_size(ticker: str, summary: dict) -> Optional[float]:
+    """Return the fund's size in its quote currency.
+
+    ``price.marketCap`` is the obvious field but Yahoo leaves it null for
+    most ETFs — market cap is a concept for operating companies, and a fund
+    reports net assets instead.  Relying on it alone returned data for every
+    ticker with a tonnage for none, so we walk a chain and, as a last
+    resort, reconstruct the figure from price times shares outstanding.
+    """
+    price_block = summary.get("price") or {}
+    detail = summary.get("summaryDetail") or {}
+    stats = summary.get("defaultKeyStatistics") or {}
+
+    for block, key, label in (
+        (price_block, "marketCap", "price.marketCap"),
+        (detail, "marketCap", "summaryDetail.marketCap"),
+        (stats, "totalAssets", "defaultKeyStatistics.totalAssets"),
+        (detail, "totalAssets", "summaryDetail.totalAssets"),
+        (stats, "netAssets", "defaultKeyStatistics.netAssets"),
+    ):
+        value = _raw_value(block, key)
+        if value:
+            log.debug("%s: fund size from %s", ticker, label)
+            return value
+
+    shares = _raw_value(stats, "sharesOutstanding")
+    price = _raw_value(price_block, "regularMarketPrice")
+    if shares and price:
+        log.debug("%s: fund size from price x sharesOutstanding", ticker)
+        return shares * price
+
+    log.info(
+        "%s: no fund size; price keys=%s stats keys=%s detail keys=%s",
+        ticker,
+        ",".join(sorted(price_block)[:6]) or "none",
+        ",".join(sorted(stats)[:6]) or "none",
+        ",".join(sorted(detail)[:6]) or "none",
+    )
+    return None
+
+
 def _quote_fields(
     session: "YahooSession", ticker: str
 ) -> Optional[tuple[str, Optional[float], Optional[float]]]:
@@ -221,7 +262,7 @@ def _quote_fields(
         currency = (price_block.get("currency") or "USD").upper()
         return (
             currency,
-            _raw_value(price_block, "marketCap"),
+            _fund_size(ticker, summary),
             _raw_value(price_block, "regularMarketPrice"),
         )
 

@@ -63,10 +63,22 @@ _REPORT_LINK = re.compile(
     re.IGNORECASE,
 )
 
-# A real report page names the instrument one way or another.  Kept broad
-# and case-insensitive: the previous exact "ETF" substring test rejected
-# perfectly good titles that said "exchange-traded".
-_TITLE_MARKERS = ("etf", "exchange-traded", "exchange traded")
+# The monthly write-ups are titled editorially — "Europe's golden heatwave",
+# "H1 flows remain positive", "The West returns to the fold" — and routinely
+# never say "ETF" at all.  Requiring a keyword in the title therefore
+# rejected every genuine report.  The URL is already scoped to
+# gold-etfs-holdings-and-flows, so a 200 with a real title *is* the report;
+# all we need to screen out is the CMS serving a generic page for a month
+# that has not been published, which shows up as one of these landing
+# titles rather than an article headline.
+_PLACEHOLDER_TITLES = (
+    "goldhub",
+    "gold hub",
+    "page not found",
+    "not found",
+    "research library",
+    "world gold council",
+)
 
 
 def _new_client() -> httpx.Client:
@@ -106,8 +118,16 @@ def _extract_meta(body: str) -> dict[str, str]:
 
 
 def _looks_like_report(title: str) -> bool:
-    lowered = title.lower()
-    return any(marker in lowered for marker in _TITLE_MARKERS)
+    """True unless the title looks like a CMS landing page.
+
+    Deliberately permissive: the caller has already pinned the URL to a
+    specific month of the ETF flows series, so the only false positive we
+    need to exclude is an unpublished month served as generic hub content.
+    """
+    lowered = title.strip().lower()
+    if len(lowered) < 8:
+        return False
+    return not any(bad in lowered for bad in _PLACEHOLDER_TITLES)
 
 
 class WGCETFClient:
