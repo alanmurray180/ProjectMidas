@@ -22,13 +22,23 @@ python scripts/build_static.py dist
 ```
 
 `.github/workflows/pages.yml` runs that build and deploys it, hourly on UK
-working days between 08:30 and 17:30. Because Actions cron is UTC-only with no
-DST handling, the schedule covers the union of the BST and GMT windows and a
-guard job drops whichever end is an hour out for the offset currently in
-effect — so the cron never needs editing twice a year.
+working days. Actions cron is UTC-only with no DST handling, so the schedule
+covers the union of the BST and GMT windows — one edge slot therefore falls
+outside 08:30–17:30 depending on the offset in effect, and is allowed to build
+anyway.
+
+Do not count on the schedule being punctual. GitHub queues scheduled runs and
+delivers them late, drops slots under load, and has gone a full day without
+firing this one at all before resuming 7.5 hours behind. Every delivered slot
+now builds whenever it arrives, and the page footer reports the true age of
+the data. If the refresh time genuinely matters, trigger `workflow_dispatch`
+from something always-on outside GitHub.
 
 The published page is only as fresh as the last successful run. If a build
-fails, deployment is skipped and Pages keeps serving the previous version.
+fails, or too many upstreams are unavailable, deployment is skipped and Pages
+keeps serving the previous version. `scripts/build_static.py --check` reports
+which sources are live without writing anything, and the **Check data
+sources** workflow runs that probe on any branch.
 
 ### One-time setup
 
