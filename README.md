@@ -27,12 +27,16 @@ covers the union of the BST and GMT windows — one edge slot therefore falls
 outside 08:30–17:30 depending on the offset in effect, and is allowed to build
 anyway.
 
-Do not count on the schedule being punctual. GitHub queues scheduled runs and
-delivers them late, drops slots under load, and has gone a full day without
-firing this one at all before resuming 7.5 hours behind. Every delivered slot
-now builds whenever it arrives, and the page footer reports the true age of
-the data. If the refresh time genuinely matters, trigger `workflow_dispatch`
-from something always-on outside GitHub.
+**Do not rely on that schedule.** GitHub delivered 1–3 of 11 slots a day and
+never once before 13:00 UK, sometimes hours after the window had closed. The
+real schedule is a Cloudflare Worker in [`worker/`](worker/README.md), which
+calls `workflow_dispatch` at 08:30–17:30 UK on working days; that mechanism has
+succeeded on every attempt. The `schedule:` trigger stays in the workflow as a
+free backstop — duplicate builds are harmless, since the `concurrency` group
+serialises them.
+
+Every delivered slot builds whenever it arrives, and the page footer reports
+the true age of the data.
 
 The published page is only as fresh as the last successful run. If a build
 fails, or too many upstreams are unavailable, deployment is skipped and Pages
