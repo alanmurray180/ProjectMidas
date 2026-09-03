@@ -37,31 +37,52 @@ meant to, rather than discarding a genuine refresh that arrived late.
 
 ## Deploy
 
+**1. A Cloudflare account.** The free plan is enough, and you do **not** need a
+domain — the Worker is reachable on a `workers.dev` subdomain. Sign up at
+<https://dash.cloudflare.com/sign-up>.
+
+**2. Authenticate wrangler** on the machine you deploy from:
+
 ```bash
 cd worker
-npm install -g wrangler     # if you don't have it
-wrangler login
+npm install -g wrangler      # or use `npx wrangler` throughout
+wrangler login               # opens a browser, stores a token locally
 ```
 
-**1. Create a GitHub token.** A fine-grained personal access token at
+If the account has more than one Cloudflare account attached, wrangler will
+ask which to use; add the chosen `account_id` to `wrangler.toml` to stop it
+asking again. For CI instead of a laptop, skip `wrangler login` and set
+`CLOUDFLARE_API_TOKEN` from an API token built on Cloudflare's **Edit
+Cloudflare Workers** template.
+
+**3. Deploy first**, so the Worker and its cron trigger exist:
+
+```bash
+wrangler deploy
+```
+
+Until step 5 it will run and log `GITHUB_TOKEN secret is not set` on each
+firing rather than failing — harmless.
+
+**4. Create a GitHub token.** A fine-grained personal access token at
 <https://github.com/settings/personal-access-tokens/new>:
 
 - Repository access: **only** `alanmurray180/ProjectMidas`
 - Permissions → Repository → **Actions: Read and write**
 - Nothing else. That permission is all `workflow_dispatch` needs.
+- Note the expiry date — see *If it stops working* below.
 
-**2. Store the secrets** (they never go in the repo):
+**5. Store the secrets** (they never go in the repo, and take effect
+immediately without redeploying):
 
 ```bash
 wrangler secret put GITHUB_TOKEN     # paste the token
 wrangler secret put TRIGGER_KEY      # optional: any long random string
 ```
 
-**3. Deploy:**
-
-```bash
-wrangler deploy
-```
+`TRIGGER_KEY` is only for the manual endpoint. Leaving it unset does not open
+the endpoint up — it makes it answer `401` to everything, which is the safe
+default.
 
 ## Verify
 
