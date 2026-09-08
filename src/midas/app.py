@@ -61,6 +61,7 @@ PANELS: tuple[tuple[str, str, str], ...] = (
     ("macro", "Macro scorecard", "total_score"),
     ("aggregate", "Gold ETF aggregate", "holdings"),
     ("wgc", "WGC commentary", "title"),
+    ("swiss_trade", "Swiss gold trade", "imports"),
 )
 
 # Panels that legitimately have nothing to show some of the time.  The WGC
@@ -498,6 +499,60 @@ def _fetch_macro_scorecard() -> dict | None:
         return {"error": str(exc)}
 
 
+def _fetch_swiss_gold_trade() -> dict | None:
+    try:
+        from midas.clients.swiss_trade import SwissGoldTradeClient
+
+        data = SwissGoldTradeClient().get_trade()
+        if not data["imports"] and not data["exports"]:
+            return {"error": "No Swiss gold trade data available"}
+
+        def _fmt_val(v):
+            if v >= 1e9:
+                return f"${v / 1e9:,.1f}B"
+            if v >= 1e6:
+                return f"${v / 1e6:,.0f}M"
+            return f"${v:,.0f}"
+
+        def _fmt_kg(v):
+            if v >= 1000:
+                return f"{v / 1000:,.1f}t"
+            return f"{v:,.0f} kg"
+
+        def _fmt_row(r):
+            return {
+                "country": r["country"],
+                "value_usd": _fmt_val(r["value_usd"]),
+                "weight_kg": _fmt_kg(r["weight_kg"]),
+                "raw_value": r["value_usd"],
+                "raw_weight": r["weight_kg"],
+            }
+
+        by_type = []
+        for t in data.get("by_type", []):
+            by_type.append({
+                "label": t["label"],
+                "import_kg": _fmt_kg(t["import_kg"]),
+                "export_kg": _fmt_kg(t["export_kg"]),
+            })
+
+        return {
+            "year": data["year"],
+            "source": data.get("source", ""),
+            "imports": [_fmt_row(r) for r in data["imports"][:15]],
+            "exports": [_fmt_row(r) for r in data["exports"][:15]],
+            "by_type": by_type,
+            "total_import_usd": _fmt_val(data["total_import_usd"]),
+            "total_export_usd": _fmt_val(data["total_export_usd"]),
+            "total_import_kg": _fmt_kg(data["total_import_kg"]),
+            "total_export_kg": _fmt_kg(data["total_export_kg"]),
+        }
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(exc)}
+
+
 def build_context(period: str = "30d", links: dict | None = None) -> dict:
     """Gather every dashboard panel for *period* into a template context.
 
@@ -522,6 +577,7 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
         "macro": _fetch_macro_scorecard(),
         "aggregate": _fetch_gold_etf_aggregate(),
         "wgc": _fetch_wgc_commentary(),
+        "swiss_trade": _fetch_swiss_gold_trade(),
     }
     generated = datetime.now(timezone.utc)
     context.update(

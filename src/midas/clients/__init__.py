@@ -7,6 +7,7 @@ from .fred import FREDClient
 from .macro_scorecard import MacroScorecard
 from .gold_silver import GoldSilverRatioClient
 from .major_etfs import MajorETFsClient
+from .swiss_trade import SwissGoldTradeClient
 from .vix import VIXClient
 from .wgc import WGCETFClient
 
@@ -20,6 +21,7 @@ __all__ = [
     "MacroScorecard",
     "GoldSilverRatioClient",
     "MajorETFsClient",
+    "SwissGoldTradeClient",
     "VIXClient",
     "WGCETFClient",
 ]
