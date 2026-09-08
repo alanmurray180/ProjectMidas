@@ -53,6 +53,9 @@ class CFTCClient:
 
     def __init__(self, base_url: str | None = None):
         self.base_url = base_url or CFTC_BASE
+        # Which Socrata filter strategy actually returned rows, or None if
+        # the query never ran.  Read by the dashboard's health report.
+        self.source_used: str | None = None
 
     # ------------------------------------------------------------------
     # Primary: Socrata JSON API
@@ -103,6 +106,11 @@ class CFTCClient:
                 if rows:
                     if log.isEnabledFor(logging.DEBUG):
                         log.debug("Sample keys: %s", list(rows[0].keys()))
+                    # Which strategy answered is the difference between the
+                    # dataset behaving and us scraping by on a looser filter,
+                    # so record it for the health report rather than only
+                    # mentioning it in the log.
+                    self.source_used = label
                     return rows
             except Exception as exc:
                 log.warning("Socrata [%s] failed: %s", label, exc)

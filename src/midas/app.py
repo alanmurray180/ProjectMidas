@@ -68,51 +68,94 @@ PANELS: tuple[tuple[str, str, str], ...] = (
 # publishes monthly, so an absent write-up is not a fault.
 _OPTIONAL_PANELS = frozenset({"wgc"})
 
+# Panels whose data can arrive from more than one upstream, mapped to the
+# source they are meant to run on.  A panel served by anything else has a
+# full-looking payload and a dead primary — indistinguishable from healthy
+# unless the source is checked, which is how the Swiss card reported "ok"
+# for weeks on its Comtrade fallback with BAZG refusing every connection.
+PRIMARY_SOURCE = {
+    "swiss_trade": "BAZG",
+    "cot": "cftc_commodity_code",
+}
 
-def _panel_state(name: str, value: object) -> str:
-    """Classify one panel as ``ok``, ``degraded`` or ``failed``."""
+
+def _fallback_note(name: str, value: dict, payload: object) -> str | None:
+    """Describe why a populated panel is still not running as intended.
+
+    Returns None when the panel is genuinely healthy.  Each branch reads a
+    signal the client already records, so this adds no new fetching.
+    """
+    primary = PRIMARY_SOURCE.get(name)
+    if primary:
+        source = value.get("source")
+        if source and source != primary:
+            return f"on {source} fallback, {primary} unavailable"
+
+    # The scorecard's tonnage leg falls back to a Yahoo-derived estimate when
+    # every SPDR endpoint fails, which it currently does.
+    if name == "etf":
+        tonnes = value.get("tonnes")
+        if isinstance(tonnes, dict) and tonnes.get("estimated"):
+            return "GLD tonnage estimated from Yahoo, SPDR unavailable"
+
+    # The aggregate exists to total tonnage; Yahoo happily returns every fund
+    # with no size field at all, which looks like a full list of holdings.
+    if name == "aggregate":
+        rows = [r for r in payload if isinstance(r, dict)]
+        if not any(r.get("tonnes") for r in rows):
+            return "no tonnage for any fund"
+        missing = sum(1 for r in rows if not r.get("tonnes"))
+        if missing:
+            return f"no tonnage for {missing} of {len(rows)} funds"
+
+    # The scorecard still renders with a missing leg, but a leg scored "N/A"
+    # means one of its three upstreams went dark.
+    if name == "etf":
+        dead = [
+            leg
+            for leg in ("tonnes", "volume", "price")
+            if isinstance(value.get(leg), dict)
+            and value[leg].get("label") in (None, "N/A")
+        ]
+        if dead:
+            return f"no data for {', '.join(dead)}"
+    return None
+
+
+def _panel_state(name: str, value: object) -> tuple[str, str | None]:
+    """Classify one panel as ``ok``, ``degraded`` or ``failed``, with a note.
+
+    The note explains a non-ok state in the terms someone fixing it needs —
+    which upstream is gone — rather than leaving them to read build logs.
+    """
     if value is None:
-        return "degraded" if name in _OPTIONAL_PANELS else "failed"
+        state = "degraded" if name in _OPTIONAL_PANELS else "failed"
+        return state, "nothing published" if name in _OPTIONAL_PANELS else "no data"
     if not isinstance(value, dict):
-        return "failed"
+        return "failed", "unexpected payload type"
     if value.get("error"):
-        return "failed"
+        return "failed", str(value["error"])[:120]
 
     required = dict((n, k) for n, _, k in PANELS)[name]
     payload = value.get(required)
     if payload is None or payload == "":
-        return "degraded" if name in _OPTIONAL_PANELS else "failed"
+        if name in _OPTIONAL_PANELS:
+            return "degraded", "nothing published"
+        return "failed", f"missing {required}"
     # Panels backed by a list (the ETF aggregate) are only useful populated.
     if isinstance(payload, (list, tuple)) and not payload:
-        return "failed"
+        return "failed", f"{required} is empty"
 
-    # The ETF scorecard still renders with a missing leg, but a leg scored
-    # "N/A" means one of its three upstreams went dark.
-    if name == "etf":
-        legs = (value.get("tonnes"), value.get("volume"), value.get("price"))
-        if any(
-            isinstance(leg, dict) and leg.get("label") in (None, "N/A")
-            for leg in legs
-        ):
-            return "degraded"
-
-    # A populated fund list is not on its own worth anything: the aggregate
-    # exists to total tonnage, and Yahoo happily returns every fund with no
-    # size field at all.  Checking only that holdings existed reported this
-    # as healthy while the card showed ten funds and no tonnes.
-    if name == "aggregate" and not any(
-        row.get("tonnes") for row in payload if isinstance(row, dict)
-    ):
-        return "degraded"
-    return "ok"
+    note = _fallback_note(name, value, payload)
+    return ("degraded", note) if note else ("ok", None)
 
 
 def panel_health(context: dict) -> dict:
     """Summarise which dashboard panels actually came back with data."""
-    detail = {
-        name: {"label": label, "state": _panel_state(name, context.get(name))}
-        for name, label, _ in PANELS
-    }
+    detail = {}
+    for name, label, _ in PANELS:
+        state, note = _panel_state(name, context.get(name))
+        detail[name] = {"label": label, "state": state, "note": note}
     states = [d["state"] for d in detail.values()]
     return {
         "detail": detail,
@@ -156,6 +199,10 @@ def _fetch_cot_positions() -> dict | None:
             "other_long": f"{pos.other_long:,}",
             "other_short": f"{pos.other_short:,}",
             "open_interest": f"{pos.open_interest:,}",
+            # Which Socrata filter answered.  The commodity-code query is the
+            # precise one; the looser name matches are fallbacks worth
+            # knowing about, since they can pick up the wrong contract.
+            "source": client.source_used,
         }
     except Exception as exc:
         import traceback
