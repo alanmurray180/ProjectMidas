@@ -1,0 +1,21 @@
+name = "projectmidas-refresh"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# UTC-only, so this is the union of the BST and GMT windows for 08:30-17:30
+# UK. The Worker trims whichever edge slot is an hour out for the offset
+# currently in effect, leaving exactly ten runs a working day.
+#   BST (UTC+1): 08:30-18:30 UK, 18:30 trimmed
+#   GMT (UTC+0): 07:30-17:30 UK, 07:30 trimmed
+[triggers]
+crons = ["30 7-17 * * 1-5"]
+
+[vars]
+GITHUB_OWNER = "alanmurray180"
+GITHUB_REPO = "ProjectMidas"
+WORKFLOW_FILE = "pages.yml"
+GIT_REF = "main"
+
+# Secrets are NOT set here — they never belong in the repo. Set them with:
+#   wrangler secret put GITHUB_TOKEN    (fine-grained PAT, Actions: read+write)
+#   wrangler secret put TRIGGER_KEY     (optional, for the manual endpoint)
