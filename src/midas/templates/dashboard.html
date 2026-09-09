@@ -884,7 +884,7 @@
         <br>
         <span class="health-detail">
           {%- for name, panel in health.detail.items() if panel.state != 'ok' -%}
-            {{ panel.label }} ({{ panel.state }}){{ ", " if not loop.last }}
+            {{ panel.label }} ({{ panel.note or panel.state }}){{ "; " if not loop.last }}
           {%- endfor -%}
         </span>
       {% endif %}

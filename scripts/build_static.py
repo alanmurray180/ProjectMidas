@@ -66,7 +66,8 @@ def report_health(health: dict) -> None:
     """Print a per-panel health table and surface it to Actions."""
     print("\nupstream panel health:", flush=True)
     for panel in health["detail"].values():
-        print(f"  [{_STATE_ICON[panel['state']]}] {panel['label']}", flush=True)
+        note = f"  — {panel['note']}" if panel.get("note") else ""
+        print(f"  [{_STATE_ICON[panel['state']]}] {panel['label']}{note}", flush=True)
 
     summary = (
         f"{health['ok']}/{health['total']} sources live, "
@@ -75,14 +76,25 @@ def report_health(health: dict) -> None:
     print(f"\n{summary}", flush=True)
 
     for panel in health["detail"].values():
+        note = f": {panel['note']}" if panel.get("note") else ""
         if panel["state"] == "failed":
-            _annotate("error", f"{panel['label']} is unavailable")
+            _annotate("error", f"{panel['label']} is unavailable{note}")
         elif panel["state"] == "degraded":
-            _annotate("warning", f"{panel['label']} is degraded")
+            _annotate("warning", f"{panel['label']} is degraded{note}")
 
-    rows = [f"| {p['label']} | {p['state']} |" for p in health["detail"].values()]
+    rows = [
+        f"| {p['label']} | {p['state']} | {p.get('note') or ''} |"
+        for p in health["detail"].values()
+    ]
     _step_summary(
-        ["### Dashboard sources", "", summary, "", "| Panel | State |", "| --- | --- |"]
+        [
+            "### Dashboard sources",
+            "",
+            summary,
+            "",
+            "| Panel | State | Detail |",
+            "| --- | --- | --- |",
+        ]
         + rows
     )
 
