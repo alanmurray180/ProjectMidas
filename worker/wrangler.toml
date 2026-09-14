@@ -19,3 +19,17 @@ GIT_REF = "main"
 # Secrets are NOT set here — they never belong in the repo. Set them with:
 #   wrangler secret put GITHUB_TOKEN    (fine-grained PAT, Actions: read+write)
 #   wrangler secret put TRIGGER_KEY     (optional, for the manual endpoint)
+
+# Without this, the dashboard's stored logs stay empty and the Worker's only
+# visible output is a live stream you have to be watching at the time. At ten
+# firings a working day, sampling everything costs nothing.
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true
