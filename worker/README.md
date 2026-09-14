@@ -37,16 +37,48 @@ meant to, rather than discarding a genuine refresh that arrived late.
 
 ## Deploy
 
-**1. A Cloudflare account.** The free plan is enough, and you do **not** need a
+A Cloudflare account on the free plan is enough, and you do **not** need a
 domain — the Worker is reachable on a `workers.dev` subdomain. Sign up at
 <https://dash.cloudflare.com/sign-up>.
 
-**2. Authenticate wrangler** on the machine you deploy from:
+There are two routes. Connecting the repository is the one in use, and the
+better default: the schedule and configuration stay version-controlled instead
+of living only in dashboard forms, and a push redeploys.
+
+### Route A — connect the repository (Workers Builds)
+
+> **Set the root directory to `worker`.** This is the one setting that matters
+> and the one that is easy to miss. Everything else is read from
+> `wrangler.toml`.
+
+In the Cloudflare dashboard, create a Worker from your Git repository, then
+under the Worker's **Settings → Build** (labels move around; the field is
+sometimes behind an "Advanced" toggle):
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `worker` |
+| Build command | *(leave empty — no dependencies to install)* |
+| Deploy command | `npx wrangler deploy` |
+
+Without the root directory, the build runs at the repository root, wrangler
+finds no `wrangler.toml`, assumes you meant a static site, and fails with
+`Could not detect a directory containing static files`. That error names the
+wrong problem — nothing is wrong with the Worker, wrangler simply never saw
+it. A giveaway in the log is the build running `pip install -r
+requirements.txt`: that is Cloudflare finding the *Python* dashboard at the
+root, which has nothing to do with this Worker.
+
+Because `wrangler.toml` is committed, this route applies **`[vars]` and the
+cron trigger automatically**. Only the secrets below need adding by hand.
+
+### Route B — deploy from a local machine
 
 ```bash
 cd worker
 npm install -g wrangler      # or use `npx wrangler` throughout
 wrangler login               # opens a browser, stores a token locally
+wrangler deploy              # deploy first, so the Worker exists
 ```
 
 If the account has more than one Cloudflare account attached, wrangler will
@@ -55,25 +87,27 @@ asking again. For CI instead of a laptop, skip `wrangler login` and set
 `CLOUDFLARE_API_TOKEN` from an API token built on Cloudflare's **Edit
 Cloudflare Workers** template.
 
-**3. Deploy first**, so the Worker and its cron trigger exist:
+Deploy before setting secrets either way: `wrangler secret put` against a
+Worker that does not exist yet prompts to create one, which is confusing.
+Until the secrets are set the Worker runs and logs `GITHUB_TOKEN secret is not
+set` on each firing rather than failing — harmless.
 
-```bash
-wrangler deploy
-```
+### The GitHub token, for either route
 
-Until step 5 it will run and log `GITHUB_TOKEN secret is not set` on each
-firing rather than failing — harmless.
-
-**4. Create a GitHub token.** A fine-grained personal access token at
+A fine-grained personal access token at
 <https://github.com/settings/personal-access-tokens/new>:
 
 - Repository access: **only** `alanmurray180/ProjectMidas`
 - Permissions → Repository → **Actions: Read and write**
-- Nothing else. That permission is all `workflow_dispatch` needs.
+- Nothing else. That permission is all `workflow_dispatch` needs — it cannot
+  read code or touch other repositories.
 - Note the expiry date — see *If it stops working* below.
 
-**5. Store the secrets** (they never go in the repo, and take effect
-immediately without redeploying):
+### The secrets, for either route
+
+They never go in the repo, and they take effect immediately without
+redeploying. From the dashboard, add them under **Settings → Variables and
+Secrets** as the encrypted/secret type; from a terminal:
 
 ```bash
 wrangler secret put GITHUB_TOKEN     # paste the token
@@ -98,9 +132,11 @@ Expect `202` and `{"ok": true, "status": 204, "detail": "dispatched"}`, then a
 new run in the repo's Actions tab within seconds. Without the header you get
 `401`, so the public URL cannot be used to spend your Actions minutes.
 
-Watch scheduled firings live with `wrangler tail`. Each one logs either
-`firing: Wed 09:xx London` or `skipped: Sat 10:xx London is outside the
-window`.
+Watch scheduled firings live with `wrangler tail`, or in the dashboard under
+the Worker's **Logs → Begin log stream** if you are not working from a
+terminal. Each firing logs either `firing: Wed 09:xx London` or
+`skipped: Sat 10:xx London is outside the window` — the second is correct
+behaviour outside 08:30–17:30 UK, not a fault.
 
 ## Cost
 
@@ -109,8 +145,14 @@ are included. This uses eleven invocations a working day.
 
 ## If it stops working
 
+- **Build fails with `Could not detect a directory containing static files`**
+  → the root directory is not set to `worker`. See Route A above. The build
+  log will also show it running `pip install`, which is the tell.
 - `401` or `403` from GitHub → the token expired or lacks **Actions: Read and
   write**. Fine-grained tokens expire; set a calendar reminder.
 - `404` → the token cannot see the repo, or `WORKFLOW_FILE` is wrong.
-- Nothing in `wrangler tail` at all → the cron trigger did not deploy. Check
-  the Worker's Settings → Triggers in the Cloudflare dashboard.
+- Nothing in the logs at all → the cron trigger did not deploy. On Route A it
+  comes from `[triggers]` in `wrangler.toml`, so check the build actually
+  succeeded; on Route B check the Worker's Settings → Triggers.
+- `GITHUB_TOKEN secret is not set` → the secret never landed, or was added to
+  a different Worker than the one the cron is attached to.
