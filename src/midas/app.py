@@ -45,7 +45,10 @@ _RANGE_PRESETS = {
         "fred_days": 395,
         "cpi_months": 13,
         "etf_rows": 20,
-        "spot_days": 370,
+        # MetalPriceAPI rejects a timeframe wider than 365 days, so this sits
+        # just inside the cap rather than overshooting it the way fred_days
+        # above does.
+        "spot_days": 364,
         "label": "12-month",
     },
 }
@@ -180,8 +183,11 @@ def panel_health(context: dict) -> dict:
 def _fetch_gold_price(spot_days: int = 35) -> dict | None:
     from midas.clients.metal_price import MetalPriceClient
 
-    client = MetalPriceClient()
+    # The constructor raises when the key is missing, so it belongs inside the
+    # guard: otherwise an expired key takes the whole build down instead of
+    # degrading this one card.
     try:
+        client = MetalPriceClient()
         price = client.latest()
         out = {
             "price": f"{price.price:,.2f}",
