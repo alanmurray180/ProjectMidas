@@ -209,11 +209,44 @@
     <div class="card">
       <h2>Gold Spot Price</h2>
       {% if gold_price and not gold_price.get('error') %}
+        {# The hero number keeps its own line: at 2.8rem it is larger than the
+           other cards' figures, so pairing it with the change on one row wraps
+           the currency and the percentage onto separate lines. #}
         <div class="price-big">
           <span class="currency">{{ gold_price.currency }}</span>
           {{ gold_price.price }}
         </div>
-        <div class="meta">per troy oz &middot; {{ gold_price.timestamp }}</div>
+        {% if gold_price.change %}
+          {# Not inverted like DXY or real yield: those rise when gold is under
+             pressure, whereas a rising gold price is the bullish case, so green
+             means up here. #}
+          <div style="font-size: 1.1rem; font-weight: 600; margin-top: 0.3rem; color: {% if gold_price.positive %}var(--green){% else %}var(--red){% endif %};">
+            {{ gold_price.change }} ({{ gold_price.change_pct }}%)
+            <span class="meta" style="font-weight: 400; margin-left: 0.2rem;">{{ range_label }}</span>
+          </div>
+        {% endif %}
+        <div class="meta" style="margin-bottom: 0.8rem;">
+          per troy oz &middot; {{ gold_price.timestamp }}
+        </div>
+        {% if gold_price.sparkline_svg %}
+          <div style="background: rgba(255,255,255,0.03); border-radius: 6px; padding: 0.6rem 0.5rem 0.4rem;">
+            <svg viewBox="0 0 {{ gold_price.svg_w }} {{ gold_price.svg_h }}" width="100%" height="70" preserveAspectRatio="none" style="display: block;">
+              <polyline
+                points="{{ gold_price.sparkline_svg }}"
+                fill="none"
+                stroke="{% if gold_price.positive %}var(--green){% else %}var(--red){% endif %}"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+                vector-effect="non-scaling-stroke"
+              />
+            </svg>
+            <div style="display: flex; justify-content: space-between; margin-top: 0.2rem;">
+              <span class="meta">Low {{ gold_price.lo }}</span>
+              <span class="meta">High {{ gold_price.hi }}</span>
+            </div>
+          </div>
+        {% endif %}
       {% elif gold_price and gold_price.get('error') %}
         <div class="error-msg">{{ gold_price.error }}</div>
       {% else %}

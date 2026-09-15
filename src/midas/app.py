@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Flask, render_template, request
 
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder="templates")
 
@@ -34,6 +35,9 @@ _RANGE_PRESETS = {
         "fred_days": 45,
         "cpi_months": 6,
         "etf_rows": 10,
+        # Overshoots the window so weekends and holidays still leave a full
+        # span of trading days in the series.
+        "spot_days": 35,
         "label": "30-day",
     },
     "12m": {
@@ -41,6 +45,7 @@ _RANGE_PRESETS = {
         "fred_days": 395,
         "cpi_months": 13,
         "etf_rows": 20,
+        "spot_days": 370,
         "label": "12-month",
     },
 }
@@ -90,6 +95,12 @@ def _fallback_note(name: str, value: dict, payload: object) -> str | None:
         source = value.get("source")
         if source and source != primary:
             return f"on {source} fallback, {primary} unavailable"
+
+    # The headline price and its history are separate calls, so the card can
+    # render a current figure with no line under it.  That is a real partial
+    # outage of the panel, not a cosmetic one.
+    if name == "gold_price" and not value.get("sparkline_svg"):
+        return "price history unavailable, headline only"
 
     # The scorecard's tonnage leg falls back to a Yahoo-derived estimate when
     # every SPDR endpoint fails, which it currently does.
@@ -166,19 +177,52 @@ def panel_health(context: dict) -> dict:
     }
 
 
-def _fetch_gold_price() -> dict | None:
-    try:
-        from midas.clients.metal_price import MetalPriceClient
+def _fetch_gold_price(spot_days: int = 35) -> dict | None:
+    from midas.clients.metal_price import MetalPriceClient
 
-        client = MetalPriceClient()
+    client = MetalPriceClient()
+    try:
         price = client.latest()
-        return {
+        out = {
             "price": f"{price.price:,.2f}",
             "currency": price.currency,
             "timestamp": price.timestamp.strftime("%Y-%m-%d %H:%M"),
         }
     except Exception as exc:
         return {"error": str(exc)}
+
+    # The series is deliberately a second, separate call rather than part of
+    # the block above: the headline price is the card's reason to exist, and
+    # a history that fails should cost the chart, not the number.  It is the
+    # same XAU spot series as the headline, so the last point of the line
+    # agrees with the figure above it — charting futures here instead would
+    # be free but would quietly plot a different instrument.
+    try:
+        end = date.today()
+        series = client.timeframe(end - timedelta(days=spot_days), end)
+        values = [p.price for p in series if p.price]
+        if len(values) >= 2:
+            latest_v, first_v = values[-1], values[0]
+            change = latest_v - first_v
+            change_pct = (change / first_v) * 100 if first_v else 0
+            sl = _sparkline(values)
+            out.update(
+                change=f"{change:+,.2f}",
+                change_pct=f"{change_pct:+.2f}",
+                positive=change >= 0,
+                first_date=series[0].timestamp.date().isoformat(),
+                latest_date=series[-1].timestamp.date().isoformat(),
+                sparkline_svg=sl["svg"],
+                svg_w=sl["w"],
+                svg_h=sl["h"],
+                hi=f"{sl['hi']:,.2f}",
+                lo=f"{sl['lo']:,.2f}",
+            )
+        else:
+            log.info("Gold spot history: %d point(s), too few to chart", len(values))
+    except Exception as exc:
+        log.info("Gold spot history unavailable, headline only: %s", exc)
+    return out
 
 
 def _fetch_cot_positions() -> dict | None:
@@ -613,7 +657,7 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
     yr = preset["yahoo"]
 
     context = {
-        "gold_price": _fetch_gold_price(),
+        "gold_price": _fetch_gold_price(preset["spot_days"]),
         "dxy": _fetch_dxy(yr),
         "gsr": _fetch_gold_silver_ratio(yr),
         "real_yield": _fetch_real_yield(preset["fred_days"]),
