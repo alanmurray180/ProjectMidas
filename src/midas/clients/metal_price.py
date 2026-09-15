@@ -111,7 +111,7 @@ class MetalPriceClient:
         )
         results = []
         for date_str, rates in sorted(data.get("rates", {}).items()):
-            price = _xau_to_usd(rates, currency)
+            price = _extract_gold_price(rates, currency)
             results.append(
                 GoldPrice(
                     timestamp=datetime.strptime(date_str, "%Y-%m-%d"),
