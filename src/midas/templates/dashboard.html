@@ -192,6 +192,169 @@
     }
     .age-stale #age-rel,
     .age-very-stale #age-rel { font-weight: 600; }
+    /* ---- One-pager (top-of-page summary) ------------------------------
+       Four columns: the three market numbers stacked, the two scorecards,
+       and a reserved slot for the physical scorecard.  Everything here is
+       a condensed view of cards that still exist in full below. */
+    .one-pager {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem 2rem 0;
+    }
+    .op-title {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      margin-bottom: 1rem;
+    }
+    .op-title h2 {
+      color: var(--gold);
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .op-title span {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    .op-cols {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.2rem;
+      align-items: stretch;
+    }
+    .op-col {
+      background: var(--card-bg);
+      border-radius: 10px;
+      border: 1px solid rgba(212, 168, 67, 0.15);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+    .op-col-head {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--gold);
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(212, 168, 67, 0.2);
+    }
+    /* Column 1 — market tiles */
+    .op-metric {
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      padding: 0.6rem 0.7rem;
+    }
+    .op-metric-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .op-metric-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+    .op-metric-delta { font-size: 0.8rem; font-weight: 600; }
+    .op-metric-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--gold-light);
+      line-height: 1.15;
+    }
+    .op-metric-sub {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+    .op-spark { display: block; width: 100%; height: 34px; margin-top: 0.3rem; }
+    /* Scorecard columns */
+    .op-signal {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      border-left: 4px solid var(--gold);
+      padding: 0.7rem 0.8rem;
+    }
+    .op-signal.pos { border-left-color: var(--green); }
+    .op-signal.neg { border-left-color: var(--red); }
+    .op-signal-score { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    .op-signal.pos .op-signal-score, .op-signal.pos .op-signal-label { color: var(--green); }
+    .op-signal.neg .op-signal-score, .op-signal.neg .op-signal-label { color: var(--red); }
+    .op-signal-score, .op-signal-label { color: var(--gold); }
+    .op-signal-label { font-size: 1rem; font-weight: 600; }
+    .op-signal-range { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .op-score {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      padding: 0.55rem 0.7rem;
+    }
+    .op-score-text { min-width: 0; flex: 1; }
+    .op-score-name {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+    .op-score-state { font-size: 0.85rem; font-weight: 600; margin-top: 0.1rem; }
+    .op-pill {
+      flex: none;
+      min-width: 2.1rem;
+      text-align: center;
+      font-size: 0.95rem;
+      font-weight: 700;
+      border-radius: 5px;
+      padding: 0.25rem 0.35rem;
+    }
+    .op-pos { color: var(--green); background: rgba(76,175,80,0.12); }
+    .op-neg { color: var(--red); background: rgba(231,76,60,0.12); }
+    .op-nil { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+    .op-score-state.op-pos-t { color: var(--green); }
+    .op-score-state.op-neg-t { color: var(--red); }
+    .op-score-state.op-nil-t { color: var(--text-muted); }
+    .op-note { font-size: 0.7rem; color: var(--text-muted); margin-top: auto; padding-top: 0.4rem; }
+    /* Column 4 — reserved */
+    .op-col.op-placeholder {
+      border-style: dashed;
+      border-color: rgba(212, 168, 67, 0.25);
+      background: rgba(255,255,255,0.015);
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .op-placeholder-title { font-size: 0.95rem; font-weight: 600; color: var(--text-muted); }
+    .op-placeholder-body { font-size: 0.78rem; line-height: 1.6; max-width: 15rem; }
+    .op-divider {
+      max-width: 1400px;
+      margin: 2rem auto 0;
+      padding: 0 2rem;
+    }
+    .op-divider div {
+      border-top: 1px solid rgba(212, 168, 67, 0.18);
+      padding-top: 1rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+    }
+    /* The one-pager is the first thing on screen, so it has to survive a
+       narrow window: four columns, then two, then one. */
+    @media (max-width: 1200px) {
+      .op-cols { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 700px) {
+      .op-cols { grid-template-columns: 1fr; }
+      .one-pager, .op-divider { padding-left: 1rem; padding-right: 1rem; }
+    }
   </style>
 </head>
 <body>
@@ -203,6 +366,142 @@
       <a href="{{ links['12m'] }}" class="{% if period == '12m' %}active{% endif %}">12M</a>
     </div>
   </header>
+
+  {#- ---- One-pager macros -------------------------------------------------
+      Each one condenses a card that still appears in full further down the
+      page, so the summary and the detail cannot drift apart: both read the
+      same context keys. -#}
+
+  {% macro op_metric(label, d, value, delta, sub, up_good) -%}
+    <div class="op-metric">
+      <div class="op-metric-top">
+        <span class="op-metric-label">{{ label }}</span>
+        {% if d and not d.get('error') and delta %}
+          {#- up_good flips the colour: a rising gold price is the bullish
+              case, a rising dollar or real yield is the opposite. -#}
+          <span class="op-metric-delta" style="color: {% if d.positive == up_good %}var(--green){% else %}var(--red){% endif %};">{{ delta }}</span>
+        {% endif %}
+      </div>
+      {% if d and not d.get('error') %}
+        <div class="op-metric-value">{{ value }}</div>
+        {% if d.sparkline_svg %}
+          <svg class="op-spark" viewBox="0 0 {{ d.svg_w }} {{ d.svg_h }}" preserveAspectRatio="none">
+            <polyline points="{{ d.sparkline_svg }}" fill="none"
+              stroke="{% if d.positive == up_good %}var(--green){% else %}var(--red){% endif %}"
+              stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"
+              vector-effect="non-scaling-stroke" />
+          </svg>
+        {% endif %}
+        <div class="op-metric-sub">{{ sub }}</div>
+      {% else %}
+        <div class="op-metric-value">&mdash;</div>
+        <div class="op-metric-sub">unavailable</div>
+      {% endif %}
+    </div>
+  {%- endmacro %}
+
+  {% macro op_score(name, sig) -%}
+    {% set tone = 'pos' if sig and sig.score == 1 else ('neg' if sig and sig.score == -1 else 'nil') %}
+    <div class="op-score">
+      <div class="op-score-text">
+        <div class="op-score-name">{{ name }}</div>
+        <div class="op-score-state op-{{ tone }}-t">{{ sig.label if sig else 'N/A' }}</div>
+      </div>
+      <div class="op-pill op-{{ tone }}">{{ '+1' if tone == 'pos' else ('−1' if tone == 'neg' else '0') }}</div>
+    </div>
+  {%- endmacro %}
+
+  {% macro op_signal(card, span) -%}
+    <div class="op-signal {% if card and card.positive %}pos{% elif card and card.negative %}neg{% endif %}">
+      <div class="op-signal-score">{% if card.total_score > 0 %}+{% endif %}{{ card.total_score }}</div>
+      <div>
+        <div class="op-signal-label">{{ card.score_label }}</div>
+        <div class="op-signal-range">{{ span }}</div>
+      </div>
+    </div>
+  {%- endmacro %}
+
+  <!-- ===================== ONE PAGER ===================== -->
+  <section class="one-pager">
+    <div class="op-title">
+      <h2>At a glance</h2>
+      <span>{{ range_label }} view &middot; full detail below</span>
+    </div>
+    <div class="op-cols">
+
+      <!-- Column 1: the three market numbers -->
+      <div class="op-col">
+        <div class="op-col-head">Market</div>
+        {{ op_metric(
+             'Gold Spot',
+             gold_price,
+             (gold_price.currency ~ ' ' ~ gold_price.price) if gold_price and gold_price.price else '',
+             (gold_price.change_pct ~ '%') if gold_price and gold_price.change_pct else '',
+             'per troy oz · ' ~ range_label,
+             True) }}
+        {{ op_metric(
+             'US Dollar Index (DXY)',
+             dxy,
+             dxy.latest if dxy else '',
+             (dxy.change_pct ~ '%') if dxy and dxy.change_pct else '',
+             range_label ~ ' · rising dollar = gold headwind',
+             False) }}
+        {{ op_metric(
+             '10Y Real Yield (TIPS)',
+             real_yield,
+             real_yield.latest if real_yield else '',
+             (real_yield.change ~ ' bps') if real_yield and real_yield.change else '',
+             range_label ~ ' · rising yields weigh on gold',
+             False) }}
+      </div>
+
+      <!-- Column 2: macro scorecard -->
+      <div class="op-col">
+        <div class="op-col-head">Macro Scorecard</div>
+        {% if macro and not macro.get('error') %}
+          {{ op_signal(macro, 'Sum of 4 signals · −4 to +4') }}
+          {{ op_score('DXY vs 20d MA', macro.dxy) }}
+          {{ op_score('10Y Real Yield (5d)', macro.yield_10y) }}
+          {{ op_score('US CPI YoY', macro.cpi) }}
+          {{ op_score('VIX vs 20d MA', macro.vix) }}
+        {% elif macro and macro.get('error') %}
+          <div class="error-msg">{{ macro.error }}</div>
+        {% else %}
+          <div class="error-msg">No data available</div>
+        {% endif %}
+      </div>
+
+      <!-- Column 3: ETF scorecard -->
+      <div class="op-col">
+        <div class="op-col-head">ETF Scorecard</div>
+        {% if etf and not etf.get('error') %}
+          {{ op_signal(etf, 'Sum of 3 signals · −3 to +3') }}
+          {{ op_score('GLD Holdings (tonnes)', etf.tonnes) }}
+          {{ op_score('Composite Volume (5 ETFs)', etf.volume) }}
+          {{ op_score('GLD Price vs 50d MA', etf.price) }}
+          {% if etf.tonnes and etf.tonnes.estimated %}
+            <div class="op-note">GLD tonnage estimated from Yahoo &middot; SPDR archive unavailable</div>
+          {% endif %}
+        {% elif etf and etf.get('error') %}
+          <div class="error-msg">{{ etf.error }}</div>
+        {% else %}
+          <div class="error-msg">No data available</div>
+        {% endif %}
+      </div>
+
+      <!-- Column 4: reserved for the physical scorecard -->
+      <div class="op-col op-placeholder">
+        <div class="op-placeholder-title">Physical Scorecard</div>
+        <div class="op-placeholder-body">
+          Reserved. Candidate signals: Swiss net exports, COT managed-money
+          net, ETF aggregate tonnage change, gold/silver ratio.
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="op-divider"><div>Detail</div></div>
 
   <div class="grid">
     <!-- Gold Spot Price -->
