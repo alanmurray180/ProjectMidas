@@ -27,7 +27,7 @@ serialises them, and Actions is free on a public repo.
 
 ## What it does
 
-Fires `30 7-17 * * 1-5` UTC — the union of the BST and GMT windows — and
+Fires `30 7-17 * * MON-FRI` UTC — the union of the BST and GMT windows — and
 trims whichever edge slot is an hour out for the offset currently in effect,
 leaving exactly **ten rebuilds a working day, 08:30 to 17:30 UK**.
 
@@ -151,6 +151,13 @@ are included. This uses eleven invocations a working day.
 - `401` or `403` from GitHub → the token expired or lacks **Actions: Read and
   write**. Fine-grained tokens expire; set a calendar reminder.
 - `404` → the token cannot see the repo, or `WORKFLOW_FILE` is wrong.
+- **Firing on the wrong days, or "next trigger" naming a weekend day** → the
+  day-of-week field. Cloudflare numbers it `1=Sunday..7=Saturday`, while GitHub
+  Actions and Unix cron use `0=Sunday..6=Saturday`. So a numeric `1-5` that
+  looks like Mon-Fri is read here as **Sun-Thu**, quietly losing Friday. Spell
+  the days out (`MON-FRI`) and it is right under either convention. Note this
+  bites only `wrangler.toml` — the `schedule:` block in `pages.yml` is GitHub's
+  cron, where numeric `1-5` really is Mon-Fri.
 - Nothing in the logs at all → the cron trigger did not deploy. On Route A it
   comes from `[triggers]` in `wrangler.toml`, so check the build actually
   succeeded; on Route B check the Worker's Settings → Triggers.
