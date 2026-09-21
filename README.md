@@ -10,7 +10,49 @@ cp .env.example .env   # then fill in your keys
 python -m midas.app    # http://localhost:5000
 ```
 
-The Flask app serves both range variants from `/` via `?range=30d` / `?range=12m`.
+The Flask app serves both range variants from `/` via `?range=30d` / `?range=12m`,
+and the weekly COT history from `/cot_history.csv`.
+
+Tests cover the positioning maths and the panel that renders it:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+## CFTC positioning (COT)
+
+The COT card splits open interest into contracts by side — long, short,
+spread and net for each of the five trader categories, each as a share of
+open interest — and then measures how those numbers are moving: the change
+in the long leg, the short leg and the net over 1, 4, 13 and 52 weekly
+reports, plus where managed-money net sits in its own 52-week range as a
+percentile.
+
+The long and short legs are shown separately on purpose. A net that rises
+because shorts covered is a different market from one that rises because
+longs were added, and the net figure alone cannot tell them apart.
+
+History is fetched, not accumulated: the CFTC publishes five years of
+weekly reports, so the trend is right on the first run rather than a year
+from now. `dist/cot_history.csv` carries the full weekly series — every
+category, every leg — for use in a spreadsheet, and the card links to it.
+
+The one-pager carries the condensed version — managed-money net, its
+crowding label, and the net change over 1, 4 and 13 weeks — so positioning
+is readable without scrolling to the card.
+
+Two caveats worth remembering when reading the card:
+
+- Positions are as at **Tuesday's close** and published the **following
+  Friday**, so the freshest report is three to ten days old, and the trend
+  numbers only move on Fridays.
+- Several gold contracts (full-size, micro) answer a loose name search.
+  The series asks for the full-size COMEX contract by its contract market
+  code, then by its exact name; only if both fail does it fall back to a
+  name search and de-duplicate what comes back, keeping the largest
+  contract per week. The card names the contract it is showing, and the
+  health report flags a run served by a fallback filter.
 
 ## Deployment (GitHub Pages)
 

@@ -8,6 +8,11 @@ Futures-Only dataset (resource ``72hh-3qpy``) breaks out Managed Money
 Falls back to the legacy bulk-ZIP download if the Socrata API is
 unavailable.
 
+The report is weekly (Tuesday close, published the following Friday), so
+the same query that returns the latest snapshot returns the history behind
+it for the price of a bigger ``$limit`` — which is what
+:meth:`CFTCClient.get_history` uses to build the trend series.
+
 Reference:
   https://publicreporting.cftc.gov/Commitments-of-Traders/Disaggregated-Futures-Only/72hh-3qpy
 """
@@ -27,11 +32,33 @@ from midas.models.gold import COTPosition
 
 log = logging.getLogger(__name__)
 
-# CFTC commodity code for "GOLD" in COMEX
+# CFTC commodity code for "GOLD" in COMEX.  The Socrata dataset answers
+# this filter with zero rows — the field exists but carries the commodity
+# group, not this code — so it is kept only as a late fallback, behind the
+# two filters below that do select the contract.
 GOLD_COMMODITY_CODE = "088691"
+
+# Contract market code for the full-size COMEX gold future.  This is the
+# field the dataset actually indexes 088691 under, and it selects exactly
+# one row per weekly report.
+GOLD_CONTRACT_MARKET_CODE = "088691"
 
 # Socrata open-data endpoint for the disaggregated futures report.
 SOCRATA_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
+
+# The full-size COMEX contract, as the CFTC names it.  Micro gold and the
+# enumerated combined contracts answer the same loose "%GOLD%" filters, and
+# they are an order of magnitude smaller, so a series that mixes them in
+# shows step changes that never happened.  Rows are scored against this
+# prefix and the largest-open-interest row wins any date it does not settle.
+PRIMARY_MARKET_PREFIX = "GOLD - COMMODITY EXCHANGE"
+
+# The exact market name, for the filter that asks for this contract by name.
+PRIMARY_MARKET_NAME = "GOLD - COMMODITY EXCHANGE INC."
+
+# Five years of weekly reports.  Deep enough for a 52-week percentile to
+# have several cycles behind it, small enough to stay one Socrata call.
+DEFAULT_HISTORY_WEEKS = 260
 
 _HTTP_HEADERS = {
     "User-Agent": (
@@ -76,20 +103,32 @@ class CFTCClient:
         """
         headers = self._socrata_headers()
 
-        # Strategy 1: filter by cftc_commodity_code
-        # Strategy 2: filter by market_and_exchange_names containing GOLD
-        # Strategy 3: filter by commodity_name containing GOLD
+        # In precision order.  The first two select the full-size COMEX
+        # contract and nothing else, so one row comes back per weekly
+        # report; the ``like '%GOLD%'`` filters below them also match micro
+        # gold and the combined contracts, which is why a fallback asks for
+        # several times as many rows and why the caller de-duplicates.
         strategies = [
-            ("cftc_commodity_code", f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'"),
-            ("market_and_exchange_names", "market_and_exchange_names like '%GOLD%'"),
-            ("commodity_name", "commodity_name like '%GOLD%'"),
+            (
+                "cftc_contract_market_code",
+                f"cftc_contract_market_code='{GOLD_CONTRACT_MARKET_CODE}'",
+                1,
+            ),
+            (
+                "market_and_exchange_name",
+                f"market_and_exchange_names='{PRIMARY_MARKET_NAME}'",
+                1,
+            ),
+            ("cftc_commodity_code", f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'", 1),
+            ("market_and_exchange_names", "market_and_exchange_names like '%GOLD%'", 4),
+            ("commodity_name", "commodity_name like '%GOLD%'", 4),
         ]
 
-        for label, where_clause in strategies:
+        for label, where_clause, rows_per_report in strategies:
             params = {
                 "$where": where_clause,
                 "$order": "report_date_as_yyyy_mm_dd DESC",
-                "$limit": str(limit),
+                "$limit": str(limit * rows_per_report),
             }
             log.info("Socrata query [%s]: %s", label, where_clause)
             try:
@@ -159,6 +198,7 @@ class CFTCClient:
             nonrep_long=_int(row.get("nonrept_positions_long_all")),
             nonrep_short=_int(row.get("nonrept_positions_short_all")),
             open_interest=_int(row.get("open_interest_all")),
+            market_name=str(row.get("market_and_exchange_names") or "").strip(),
         )
 
     # ------------------------------------------------------------------
@@ -210,33 +250,81 @@ class CFTCClient:
             nonrep_long=int(row[_col("NonRept_Positions_Long_All")]),
             nonrep_short=int(row[_col("NonRept_Positions_Short_All")]),
             open_interest=int(row[_col("Open_Interest_All")]),
+            market_name=str(row[_col("Market_and_Exchange_Names")]).strip(),
         )
+
+    # ------------------------------------------------------------------
+    # One contract per week
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dedupe_by_date(positions: list[COTPosition]) -> list[COTPosition]:
+        """Keep one row per report date — the full-size COMEX gold contract.
+
+        Only the commodity-code filter is precise; the name filters behind
+        it also match micro gold and the combined contracts, which report on
+        the same dates at a fraction of the size.  Left alone, those rows
+        turn a positioning series into a sawtooth that no trader ever
+        traded.  The market name decides where it is available, open
+        interest where it is not.
+        """
+        best: dict[date, COTPosition] = {}
+        for pos in positions:
+            current = best.get(pos.report_date)
+            if current is None or CFTCClient._rank(pos) > CFTCClient._rank(current):
+                best[pos.report_date] = pos
+        return sorted(best.values(), key=lambda p: p.report_date)
+
+    @staticmethod
+    def _rank(pos: COTPosition) -> tuple[int, int]:
+        """Score a row for the pick above: named contract first, then size."""
+        named = pos.market_name.upper().startswith(PRIMARY_MARKET_PREFIX)
+        return (1 if named else 0, pos.open_interest)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get_positions(self, year: int | None = None) -> list[COTPosition]:
-        """Get weekly gold COT positions.
+    def get_history(
+        self, weeks: int = DEFAULT_HISTORY_WEEKS, year: int | None = None
+    ) -> list[COTPosition]:
+        """Get the weekly gold COT series, oldest first.
 
-        Tries the Socrata JSON API first (latest rows regardless of year),
-        then falls back to the ZIP download for the given year and the
-        previous year.
+        Returns at most *weeks* reports, one per report date.  Same sources
+        and same fallback order as :meth:`get_positions`; the difference is
+        the depth requested and that the result is de-duplicated to a single
+        contract, which a trend series depends on and a single snapshot does
+        not.
         """
         year = year or date.today().year
 
-        # Try Socrata API first (faster, more reliable)
         try:
-            rows = self._fetch_socrata()
+            # In reports, not rows: a filter that can return several gold
+            # contracts per date scales this up itself.
+            rows = self._fetch_socrata(limit=weeks)
             if rows:
-                positions = [self._socrata_row_to_position(r) for r in rows]
-                return sorted(positions, key=lambda p: p.report_date)
+                positions = self._dedupe_by_date(
+                    [self._socrata_row_to_position(r) for r in rows]
+                )[-weeks:]
+                if positions:
+                    log.info(
+                        "COT history: %d weekly reports, %s to %s, via [%s]",
+                        len(positions),
+                        positions[0].report_date,
+                        positions[-1].report_date,
+                        self.source_used,
+                    )
+                    return positions
             log.warning("Socrata returned empty results")
         except Exception as exc:
             log.warning("Socrata API failed (%s), falling back to ZIP download", exc)
 
-        # Fallback: bulk ZIP download — try current year, then previous year
-        for try_year in [year, year - 1]:
+        # Fallback: one ZIP per calendar year, newest first, until enough
+        # weeks are in hand.  Each archive is ~10MB, so stop as soon as the
+        # window is covered rather than always pulling the full five years.
+        collected: list[COTPosition] = []
+        years_needed = min(weeks // 52 + 2, 6)
+        for try_year in range(year, year - years_needed, -1):
             try:
                 log.info("Trying ZIP download for year %d", try_year)
                 df = self._download_zip(try_year)
@@ -244,12 +332,20 @@ class CFTCClient:
                 if gold_df.empty:
                     log.warning("No gold rows in ZIP for %d", try_year)
                     continue
-                positions = [self._row_to_position(row) for _, row in gold_df.iterrows()]
-                return sorted(positions, key=lambda p: p.report_date)
+                collected.extend(
+                    self._row_to_position(row) for _, row in gold_df.iterrows()
+                )
+                self.source_used = self.source_used or "zip"
+                if len(self._dedupe_by_date(collected)) >= weeks:
+                    break
             except Exception as exc:
                 log.warning("ZIP download failed for %d: %s", try_year, exc)
 
-        return []
+        return self._dedupe_by_date(collected)[-weeks:]
+
+    def get_positions(self, year: int | None = None) -> list[COTPosition]:
+        """Get recent weekly gold COT positions, oldest first."""
+        return self.get_history(weeks=10, year=year)
 
     def latest_position(self, year: int | None = None) -> COTPosition:
         """Get the most recent weekly gold COT position."""

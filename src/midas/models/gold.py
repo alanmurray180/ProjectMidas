@@ -40,11 +40,70 @@ class COTPosition:
     nonrep_short: int
     # Open Interest
     open_interest: int
+    # Which contract the row describes, e.g. "GOLD - COMMODITY EXCHANGE INC.".
+    # The CFTC publishes several gold contracts (full-size, micro) under the
+    # same commodity code, so a series built without checking this can splice
+    # two different markets into one line.
+    market_name: str = ""
 
     @property
     def mm_net(self) -> int:
         """Managed-money net position — the market's key speculative signal."""
         return self.mm_long - self.mm_short
+
+    @property
+    def prod_net(self) -> int:
+        """Producer/merchant net — the commercial hedging side of the book."""
+        return self.prod_long - self.prod_short
+
+    @property
+    def swap_net(self) -> int:
+        return self.swap_long - self.swap_short
+
+    @property
+    def other_net(self) -> int:
+        return self.other_long - self.other_short
+
+    @property
+    def nonrep_net(self) -> int:
+        return self.nonrep_long - self.nonrep_short
+
+    @property
+    def total_long(self) -> int:
+        """Gross long contracts across every trader category.
+
+        Spread contracts are excluded: they are long and short at once, so
+        adding them to either side double-counts the position.
+        """
+        return (
+            self.prod_long
+            + self.swap_long
+            + self.mm_long
+            + self.other_long
+            + self.nonrep_long
+        )
+
+    @property
+    def total_short(self) -> int:
+        """Gross short contracts across every trader category."""
+        return (
+            self.prod_short
+            + self.swap_short
+            + self.mm_short
+            + self.other_short
+            + self.nonrep_short
+        )
+
+    @property
+    def total_spread(self) -> int:
+        """Spread contracts held by the reportable categories."""
+        return self.swap_spread + self.mm_spread + self.other_spread
+
+    def pct_of_oi(self, contracts: int) -> float | None:
+        """Express a contract count as a percentage of open interest."""
+        if not self.open_interest:
+            return None
+        return contracts / self.open_interest * 100
 
 
 @dataclass

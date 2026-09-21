@@ -15,8 +15,12 @@ app = Flask(__name__, template_folder="templates")
 # Link targets for the 30D/12M toggle.  The Flask app serves both variants
 # from one route via a query string; the static build emits them as two
 # separate files, so the targets differ per rendering mode.
-SERVED_LINKS = {"30d": "/?range=30d", "12m": "/?range=12m"}
-STATIC_LINKS = {"30d": "./", "12m": "./12m.html"}
+SERVED_LINKS = {
+    "30d": "/?range=30d",
+    "12m": "/?range=12m",
+    "cot_csv": "/cot_history.csv",
+}
+STATIC_LINKS = {"30d": "./", "12m": "./12m.html", "cot_csv": "./cot_history.csv"}
 
 # The published page is static, so it cannot rebuild itself — a button in
 # the page would need a GitHub token, and the site is public.  These link
@@ -83,7 +87,11 @@ _OPTIONAL_PANELS = frozenset({"wgc"})
 # for weeks on its Comtrade fallback with BAZG refusing every connection.
 PRIMARY_SOURCE = {
     "swiss_trade": "BAZG",
-    "cot": "cftc_commodity_code",
+    # Either of these two CFTC filters selects the full-size COMEX gold
+    # contract on its own; anything else is a loose name match that can
+    # return several gold contracts per week, which is worth flagging even
+    # though the client de-duplicates them.
+    "cot": ("cftc_contract_market_code", "market_and_exchange_name"),
 }
 
 
@@ -95,9 +103,10 @@ def _fallback_note(name: str, value: dict, payload: object) -> str | None:
     """
     primary = PRIMARY_SOURCE.get(name)
     if primary:
+        accepted = (primary,) if isinstance(primary, str) else primary
         source = value.get("source")
-        if source and source != primary:
-            return f"on {source} fallback, {primary} unavailable"
+        if source and source not in accepted:
+            return f"on {source} fallback, {accepted[0]} unavailable"
 
     # The headline price and its history are separate calls, so the card can
     # render a current figure with no line under it.  That is a real partial
@@ -231,24 +240,192 @@ def _fetch_gold_price(spot_days: int = 35) -> dict | None:
     return out
 
 
+def _signed(value: int | None) -> str:
+    """Format a contract change with an explicit sign, or an em dash.
+
+    An unchanged leg prints as a bare ``0``: "+0" reads like a small
+    addition at a glance, which is exactly what it is not.
+    """
+    if value is None:
+        return "—"
+    return "0" if value == 0 else f"{value:+,}"
+
+
+def _cot_chart(series: list[float], w: int = 560, h: int = 90) -> dict:
+    """Plot a COT series, keeping the zero line where the eye expects it.
+
+    ``_sparkline`` scales to the data, which is right for a price and wrong
+    for a net position: a series that never crosses zero would otherwise
+    look as though it swung through it.  The scale here always includes
+    zero, and the baseline's y coordinate comes back with the points so the
+    template can draw it.
+    """
+    lo, hi = min(series), max(series)
+    lo, hi = min(lo, 0), max(hi, 0)
+    span = hi - lo if hi != lo else 1
+    points = " ".join(
+        f"{(i / max(len(series) - 1, 1)) * w:.1f},{h - ((v - lo) / span) * h:.1f}"
+        for i, v in enumerate(series)
+    )
+    return {
+        "points": points,
+        "w": w,
+        "h": h,
+        "lo": lo,
+        "hi": hi,
+        "zero_y": f"{h - ((0 - lo) / span) * h:.1f}",
+    }
+
+
+def _cot_line(series: list[float], lo: float, hi: float, w: int, h: int) -> str:
+    """Plot a series on a scale someone else set, for overlaid lines."""
+    span = hi - lo if hi != lo else 1
+    return " ".join(
+        f"{(i / max(len(series) - 1, 1)) * w:.1f},{h - ((v - lo) / span) * h:.1f}"
+        for i, v in enumerate(series)
+    )
+
+
+def cot_history_csv(rows: list[dict]) -> str:
+    """Render the weekly COT history as CSV for a spreadsheet."""
+    import csv
+    import io
+
+    if not rows:
+        return ""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
 def _fetch_cot_positions() -> dict | None:
     try:
         from midas.clients.cftc import CFTCClient
+        from midas.clients.cot_trends import COT_LOOKBACK_LABELS, COTTrends
 
         client = CFTCClient()
-        pos = client.latest_position()
+        history = client.get_history()
+        data = COTTrends(history).compute()
+
+        latest = history[-1]
+        categories = [
+            {
+                "label": c["label"],
+                "note": c["note"],
+                "long": f"{c['long']:,}",
+                "short": f"{c['short']:,}",
+                "spread": f"{c['spread']:,}" if c["spread"] else "—",
+                "net": _signed(c["net"]),
+                "net_positive": c["net"] >= 0,
+                "long_pct_oi": (
+                    f"{c['long_pct_oi']:.1f}%" if c["long_pct_oi"] is not None else "—"
+                ),
+                "short_pct_oi": (
+                    f"{c['short_pct_oi']:.1f}%" if c["short_pct_oi"] is not None else "—"
+                ),
+                "ratio": (
+                    f"{c['long_short_ratio']:.2f}x"
+                    if c["long_short_ratio"] is not None
+                    else "—"
+                ),
+                # Trends per leg, so the table can answer "who is adding" —
+                # a net figure alone cannot tell longs covering from shorts
+                # piling in, and those are different markets.
+                "trend": {
+                    leg: {
+                        label: {
+                            "text": _signed(c["changes"][leg][label]),
+                            "positive": (c["changes"][leg][label] or 0) > 0,
+                            # An unchanged or unavailable leg is neither
+                            # bullish nor bearish, so it stays uncoloured.
+                            "flat": not c["changes"][leg][label],
+                        }
+                        for label in COT_LOOKBACK_LABELS
+                    }
+                    for leg in ("long", "short", "net")
+                },
+                "is_total": c["key"] == "total",
+                "is_mm": c["key"] == "mm",
+            }
+            for c in data["categories"]
+        ]
+
+        mm = next(c for c in data["categories"] if c["key"] == "mm")
+        ctx = data["context"]
+        net_series = [row["mm_net"] for row in data["series"]]
+        long_series = [row["mm_long"] for row in data["series"]]
+        short_series = [row["mm_short"] for row in data["series"]]
+
+        # Plot at most two years: five years of weekly points in a 560px box
+        # is a smear, and the recent shape is what the eye is reading for.
+        plot_weeks = min(len(net_series), 104)
+        net_chart = _cot_chart(net_series[-plot_weeks:])
+        gross_lo = min(min(long_series[-plot_weeks:]), min(short_series[-plot_weeks:]))
+        gross_hi = max(max(long_series[-plot_weeks:]), max(short_series[-plot_weeks:]))
+        gross_w, gross_h = 560, 90
+
+        report_age = (date.today() - data["report_date"]).days
+
         return {
-            "report_date": pos.report_date.isoformat(),
-            "mm_long": f"{pos.mm_long:,}",
-            "mm_short": f"{pos.mm_short:,}",
-            "mm_net": f"{pos.mm_net:,}",
-            "prod_long": f"{pos.prod_long:,}",
-            "prod_short": f"{pos.prod_short:,}",
-            "swap_long": f"{pos.swap_long:,}",
-            "swap_short": f"{pos.swap_short:,}",
-            "other_long": f"{pos.other_long:,}",
-            "other_short": f"{pos.other_short:,}",
-            "open_interest": f"{pos.open_interest:,}",
+            "report_date": data["report_date"].isoformat(),
+            "report_age_days": report_age,
+            "market_name": data["market_name"] or "COMEX gold futures",
+            "history_weeks": data["weeks"],
+            "history_start": data["history_start"].isoformat(),
+            "open_interest": f"{data['open_interest']:,}",
+            "oi_change_1w": _signed(data["oi_changes"]["1w"]),
+            "oi_change_4w": _signed(data["oi_changes"]["4w"]),
+            "categories": categories,
+            "lookbacks": list(COT_LOOKBACK_LABELS),
+            # Headline managed-money figures, kept at the top level so the
+            # summary row does not have to dig through the table.
+            "mm_long": f"{latest.mm_long:,}",
+            "mm_short": f"{latest.mm_short:,}",
+            "mm_net": f"{latest.mm_net:+,}",
+            "mm_net_positive": latest.mm_net >= 0,
+            "mm_net_change_1w": _signed(mm["changes"]["net"]["1w"]),
+            "mm_net_change_4w": _signed(mm["changes"]["net"]["4w"]),
+            "mm_net_change_13w": _signed(mm["changes"]["net"]["13w"]),
+            "mm_net_change_52w": _signed(mm["changes"]["net"]["52w"]),
+            # The same net changes with their direction attached, for the
+            # one-pager, which colours them rather than tabulating them.
+            "mm_net_trend": {
+                label: {
+                    "text": _signed(mm["changes"]["net"][label]),
+                    "positive": (mm["changes"]["net"][label] or 0) > 0,
+                    "flat": not mm["changes"]["net"][label],
+                }
+                for label in COT_LOOKBACK_LABELS
+            },
+            "context_label": ctx["label"],
+            "context_weeks": ctx["weeks"],
+            "context_percentile": (
+                f"{ctx['percentile']:.0f}" if ctx["percentile"] is not None else "—"
+            ),
+            "context_high": f"{ctx['high']:+,}",
+            "context_low": f"{ctx['low']:+,}",
+            "context_range_pct": f"{ctx['range_pct']:.1f}",
+            "plot_weeks": plot_weeks,
+            "plot_start": data["series"][-plot_weeks]["report_date"],
+            "net_chart": net_chart,
+            "gross_chart": {
+                "long": _cot_line(
+                    long_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
+                ),
+                "short": _cot_line(
+                    short_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
+                ),
+                "w": gross_w,
+                "h": gross_h,
+                "lo": f"{gross_lo:,}",
+                "hi": f"{gross_hi:,}",
+            },
+            # The full weekly series, published alongside the page as CSV so
+            # the history is usable in a spreadsheet rather than only on
+            # screen.  Not rendered into the HTML.
+            "series": data["series"],
             # Which Socrata filter answered.  The commodity-code query is the
             # precise one; the looser name matches are fallbacks worth
             # knowing about, since they can pick up the wrong contract.
@@ -704,6 +881,26 @@ def render_context(context: dict) -> str:
 def render_dashboard(period: str = "30d", links: dict | None = None) -> str:
     """Render the dashboard to an HTML string."""
     return render_context(build_context(period, links))
+
+
+@app.route("/cot_history.csv")
+def cot_history():
+    """Serve the weekly COT history the COT card links to.
+
+    The static build writes this file once per build; served live it costs
+    one CFTC call, which is the same call the page itself makes.
+    """
+    from flask import Response
+
+    cot = _fetch_cot_positions() or {}
+    csv_text = cot_history_csv(cot.get("series") or [])
+    if not csv_text:
+        return Response("report_date\n", mimetype="text/csv", status=503)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=cot_history.csv"},
+    )
 
 
 @app.route("/")
