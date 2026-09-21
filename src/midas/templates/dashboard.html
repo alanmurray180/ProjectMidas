@@ -294,7 +294,7 @@
     }
     .op-cols {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 1.2rem;
       align-items: stretch;
     }
@@ -359,6 +359,12 @@
     .op-signal.pos { border-left-color: var(--green); }
     .op-signal.neg { border-left-color: var(--red); }
     .op-signal-score { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    /* Positioning carries a contract count, not a −4..+4 score, so it gets
+       its own size: at 2.2rem "+175,663" wraps out of the column. */
+    .op-signal-net { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+    .op-signal-stacked { display: block; }
+    .op-signal.pos .op-signal-net { color: var(--green); }
+    .op-signal.neg .op-signal-net { color: var(--red); }
     .op-signal.pos .op-signal-score, .op-signal.pos .op-signal-label { color: var(--green); }
     .op-signal.neg .op-signal-score, .op-signal.neg .op-signal-label { color: var(--red); }
     .op-signal-score, .op-signal-label { color: var(--gold); }
@@ -396,7 +402,7 @@
     .op-score-state.op-neg-t { color: var(--red); }
     .op-score-state.op-nil-t { color: var(--text-muted); }
     .op-note { font-size: 0.7rem; color: var(--text-muted); margin-top: auto; padding-top: 0.4rem; }
-    /* Column 4 — reserved */
+    /* Last column — reserved */
     .op-col.op-placeholder {
       border-style: dashed;
       border-color: rgba(212, 168, 67, 0.25);
@@ -422,8 +428,11 @@
       color: var(--text-muted);
     }
     /* The one-pager is the first thing on screen, so it has to survive a
-       narrow window: four columns, then two, then one. */
-    @media (max-width: 1200px) {
+       narrow window: five columns, then three, then two, then one. */
+    @media (max-width: 1250px) {
+      .op-cols { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 950px) {
       .op-cols { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 700px) {
@@ -483,6 +492,17 @@
         <div class="op-score-state op-{{ tone }}-t">{{ sig.label if sig else 'N/A' }}</div>
       </div>
       <div class="op-pill op-{{ tone }}">{{ '+1' if tone == 'pos' else ('−1' if tone == 'neg' else '0') }}</div>
+    </div>
+  {%- endmacro %}
+
+  {#- A named figure, coloured by direction.  op_score above is for the
+      scorecards' +1/-1 pills; this one carries a contract count. -#}
+  {% macro op_change(name, change) -%}
+    <div class="op-score">
+      <div class="op-score-text">
+        <div class="op-score-name">{{ name }}</div>
+      </div>
+      <div class="op-pill {% if change.flat %}op-nil{% elif change.positive %}op-pos{% else %}op-neg{% endif %}">{{ change.text }}</div>
     </div>
   {%- endmacro %}
 
@@ -564,12 +584,41 @@
         {% endif %}
       </div>
 
-      <!-- Column 4: reserved for the physical scorecard -->
+      <!-- Column 4: CFTC positioning, condensed from the card below -->
+      <div class="op-col">
+        <div class="op-col-head">Positioning (COT)</div>
+        {% if cot and not cot.get('error') %}
+          {# Stacked rather than side by side like the scorecards' signal
+             block: a six-figure contract count and its label do not both
+             fit across a fifth of the row. #}
+          <div class="op-signal op-signal-stacked {% if cot.mm_net_positive %}pos{% else %}neg{% endif %}">
+            <div class="op-signal-net">{{ cot.mm_net }}</div>
+            <div class="op-signal-label">{{ cot.context_label }}</div>
+            <div class="op-signal-range">
+              Managed money net &middot; {{ cot.context_percentile }}th percentile
+              of {{ cot.context_weeks }}w
+            </div>
+          </div>
+          {{ op_change('Net, 1 week', cot.mm_net_trend['1w']) }}
+          {{ op_change('Net, 4 weeks', cot.mm_net_trend['4w']) }}
+          {{ op_change('Net, 13 weeks', cot.mm_net_trend['13w']) }}
+          <div class="op-note">
+            {{ cot.mm_long }} long vs {{ cot.mm_short }} short &middot;
+            report {{ cot.report_date }}, Tuesday close
+          </div>
+        {% elif cot and cot.get('error') %}
+          <div class="error-msg">{{ cot.error }}</div>
+        {% else %}
+          <div class="error-msg">No data available</div>
+        {% endif %}
+      </div>
+
+      <!-- Column 5: reserved for the physical scorecard -->
       <div class="op-col op-placeholder">
         <div class="op-placeholder-title">Physical Scorecard</div>
         <div class="op-placeholder-body">
-          Reserved. Candidate signals: Swiss net exports, COT managed-money
-          net, ETF aggregate tonnage change, gold/silver ratio.
+          Reserved. Candidate signals: Swiss net exports, ETF aggregate
+          tonnage change, gold/silver ratio.
         </div>
       </div>
 

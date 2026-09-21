@@ -384,6 +384,16 @@ def _fetch_cot_positions() -> dict | None:
             "mm_net_change_4w": _signed(mm["changes"]["net"]["4w"]),
             "mm_net_change_13w": _signed(mm["changes"]["net"]["13w"]),
             "mm_net_change_52w": _signed(mm["changes"]["net"]["52w"]),
+            # The same net changes with their direction attached, for the
+            # one-pager, which colours them rather than tabulating them.
+            "mm_net_trend": {
+                label: {
+                    "text": _signed(mm["changes"]["net"][label]),
+                    "positive": (mm["changes"]["net"][label] or 0) > 0,
+                    "flat": not mm["changes"]["net"][label],
+                }
+                for label in COT_LOOKBACK_LABELS
+            },
             "context_label": ctx["label"],
             "context_weeks": ctx["weeks"],
             "context_percentile": (

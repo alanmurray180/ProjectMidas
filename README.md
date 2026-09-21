@@ -38,6 +38,10 @@ weekly reports, so the trend is right on the first run rather than a year
 from now. `dist/cot_history.csv` carries the full weekly series — every
 category, every leg — for use in a spreadsheet, and the card links to it.
 
+The one-pager carries the condensed version — managed-money net, its
+crowding label, and the net change over 1, 4 and 13 weeks — so positioning
+is readable without scrolling to the card.
+
 Two caveats worth remembering when reading the card:
 
 - Positions are as at **Tuesday's close** and published the **following

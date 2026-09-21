@@ -118,6 +118,13 @@ def test_panel_payload_splits_contracts_and_trends(cot):
     assert mm["trend"]["short"]["13w"]["flat"] is True
     assert mm["long_pct_oi"].endswith("%")
 
+    # The one-pager reads the trend with its direction attached.
+    assert cot["mm_net_trend"]["4w"] == {
+        "text": "+4,000",
+        "positive": True,
+        "flat": False,
+    }
+
 
 def test_panel_marks_unreachable_lookbacks(monkeypatch):
     """Ten weeks of history cannot answer a 52-week change."""
@@ -164,6 +171,10 @@ def test_card_renders_with_the_new_panel(cot):
     assert "cot_history.csv" in html
     # The totals row is the visible cross-check that the split balances.
     assert "All categories" in html
+    # The one-pager carries the same net and its trend, condensed.
+    assert "Positioning (COT)" in html
+    assert "Crowded long" in html
+    assert html.index("Positioning (COT)") < html.index("Contracts by Side")
 
 
 def test_panel_health_sees_the_populated_card(cot):
