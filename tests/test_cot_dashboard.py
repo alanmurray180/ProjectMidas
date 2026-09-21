@@ -37,6 +37,49 @@ def _socrata_row(day: str, mm_long: int, mm_short: int, market: str, oi: int) ->
 
 
 @respx.mock
+def test_history_asks_for_the_contract_by_its_own_code_first():
+    """The precise filter returns one row per report, so it asks for one."""
+    route = respx.get(SOCRATA_BASE).mock(
+        return_value=httpx.Response(
+            200,
+            json=[_socrata_row("2025-05-13", 140_000, 28_000, "GOLD - COMMODITY EXCHANGE INC.", 500_000)],
+        )
+    )
+
+    client = CFTCClient()
+    client.get_history(weeks=260)
+
+    url = route.calls[0].request.url
+    assert "cftc_contract_market_code" in str(url)
+    assert url.params["$limit"] == "260"
+    assert client.source_used == "cftc_contract_market_code"
+
+
+@respx.mock
+def test_history_falls_back_to_the_name_filter_and_asks_for_more_rows():
+    """The loose filter also matches micro gold, so it over-fetches."""
+    rows = {"calls": 0}
+
+    def _respond(request):
+        rows["calls"] += 1
+        # Every precise filter comes back empty, as the live dataset does
+        # for the commodity code.
+        if "like" not in str(request.url):
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json=[_socrata_row("2025-05-13", 140_000, 28_000, "GOLD - COMMODITY EXCHANGE INC.", 500_000)],
+        )
+
+    route = respx.get(SOCRATA_BASE).mock(side_effect=_respond)
+    client = CFTCClient()
+    client.get_history(weeks=260)
+
+    assert client.source_used == "market_and_exchange_names"
+    assert route.calls[-1].request.url.params["$limit"] == "1040"
+
+
+@respx.mock
 def test_get_history_parses_and_dedupes_socrata_rows():
     rows = [
         _socrata_row("2025-05-13", 140_000, 28_000, "GOLD - COMMODITY EXCHANGE INC.", 500_000),
@@ -177,6 +220,16 @@ def test_card_renders_with_the_new_panel(cot):
     assert html.index("Positioning (COT)") < html.index("Contracts by Side")
 
 
-def test_panel_health_sees_the_populated_card(cot):
-    health = midas_app.panel_health({"cot": cot})
-    assert health["detail"]["cot"]["state"] in {"ok", "degraded"}
+def test_panel_health_accepts_either_precise_filter(cot):
+    for source in ("cftc_contract_market_code", "market_and_exchange_name"):
+        health = midas_app.panel_health({"cot": dict(cot, source=source)})
+        assert health["detail"]["cot"]["state"] == "ok"
+
+
+def test_panel_health_flags_a_loose_name_match(cot):
+    """A filter that can return several gold contracts is worth a warning."""
+    health = midas_app.panel_health({"cot": dict(cot, source="commodity_name")})
+    panel = health["detail"]["cot"]
+
+    assert panel["state"] == "degraded"
+    assert "commodity_name" in panel["note"]

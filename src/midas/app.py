@@ -87,7 +87,11 @@ _OPTIONAL_PANELS = frozenset({"wgc"})
 # for weeks on its Comtrade fallback with BAZG refusing every connection.
 PRIMARY_SOURCE = {
     "swiss_trade": "BAZG",
-    "cot": "cftc_commodity_code",
+    # Either of these two CFTC filters selects the full-size COMEX gold
+    # contract on its own; anything else is a loose name match that can
+    # return several gold contracts per week, which is worth flagging even
+    # though the client de-duplicates them.
+    "cot": ("cftc_contract_market_code", "market_and_exchange_name"),
 }
 
 
@@ -99,9 +103,10 @@ def _fallback_note(name: str, value: dict, payload: object) -> str | None:
     """
     primary = PRIMARY_SOURCE.get(name)
     if primary:
+        accepted = (primary,) if isinstance(primary, str) else primary
         source = value.get("source")
-        if source and source != primary:
-            return f"on {source} fallback, {primary} unavailable"
+        if source and source not in accepted:
+            return f"on {source} fallback, {accepted[0]} unavailable"
 
     # The headline price and its history are separate calls, so the card can
     # render a current figure with no line under it.  That is a real partial

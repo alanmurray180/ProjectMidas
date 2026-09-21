@@ -32,8 +32,16 @@ from midas.models.gold import COTPosition
 
 log = logging.getLogger(__name__)
 
-# CFTC commodity code for "GOLD" in COMEX
+# CFTC commodity code for "GOLD" in COMEX.  The Socrata dataset answers
+# this filter with zero rows — the field exists but carries the commodity
+# group, not this code — so it is kept only as a late fallback, behind the
+# two filters below that do select the contract.
 GOLD_COMMODITY_CODE = "088691"
+
+# Contract market code for the full-size COMEX gold future.  This is the
+# field the dataset actually indexes 088691 under, and it selects exactly
+# one row per weekly report.
+GOLD_CONTRACT_MARKET_CODE = "088691"
 
 # Socrata open-data endpoint for the disaggregated futures report.
 SOCRATA_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
@@ -44,6 +52,9 @@ SOCRATA_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
 # shows step changes that never happened.  Rows are scored against this
 # prefix and the largest-open-interest row wins any date it does not settle.
 PRIMARY_MARKET_PREFIX = "GOLD - COMMODITY EXCHANGE"
+
+# The exact market name, for the filter that asks for this contract by name.
+PRIMARY_MARKET_NAME = "GOLD - COMMODITY EXCHANGE INC."
 
 # Five years of weekly reports.  Deep enough for a 52-week percentile to
 # have several cycles behind it, small enough to stay one Socrata call.
@@ -92,20 +103,32 @@ class CFTCClient:
         """
         headers = self._socrata_headers()
 
-        # Strategy 1: filter by cftc_commodity_code
-        # Strategy 2: filter by market_and_exchange_names containing GOLD
-        # Strategy 3: filter by commodity_name containing GOLD
+        # In precision order.  The first two select the full-size COMEX
+        # contract and nothing else, so one row comes back per weekly
+        # report; the ``like '%GOLD%'`` filters below them also match micro
+        # gold and the combined contracts, which is why a fallback asks for
+        # several times as many rows and why the caller de-duplicates.
         strategies = [
-            ("cftc_commodity_code", f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'"),
-            ("market_and_exchange_names", "market_and_exchange_names like '%GOLD%'"),
-            ("commodity_name", "commodity_name like '%GOLD%'"),
+            (
+                "cftc_contract_market_code",
+                f"cftc_contract_market_code='{GOLD_CONTRACT_MARKET_CODE}'",
+                1,
+            ),
+            (
+                "market_and_exchange_name",
+                f"market_and_exchange_names='{PRIMARY_MARKET_NAME}'",
+                1,
+            ),
+            ("cftc_commodity_code", f"cftc_commodity_code='{GOLD_COMMODITY_CODE}'", 1),
+            ("market_and_exchange_names", "market_and_exchange_names like '%GOLD%'", 4),
+            ("commodity_name", "commodity_name like '%GOLD%'", 4),
         ]
 
-        for label, where_clause in strategies:
+        for label, where_clause, rows_per_report in strategies:
             params = {
                 "$where": where_clause,
                 "$order": "report_date_as_yyyy_mm_dd DESC",
-                "$limit": str(limit),
+                "$limit": str(limit * rows_per_report),
             }
             log.info("Socrata query [%s]: %s", label, where_clause)
             try:
@@ -276,15 +299,22 @@ class CFTCClient:
         year = year or date.today().year
 
         try:
-            # Ask for more rows than weeks wanted: every date can carry a row
-            # per gold contract, and the de-duplication below discards them.
-            rows = self._fetch_socrata(limit=weeks * 4)
+            # In reports, not rows: a filter that can return several gold
+            # contracts per date scales this up itself.
+            rows = self._fetch_socrata(limit=weeks)
             if rows:
                 positions = self._dedupe_by_date(
                     [self._socrata_row_to_position(r) for r in rows]
-                )
+                )[-weeks:]
                 if positions:
-                    return positions[-weeks:]
+                    log.info(
+                        "COT history: %d weekly reports, %s to %s, via [%s]",
+                        len(positions),
+                        positions[0].report_date,
+                        positions[-1].report_date,
+                        self.source_used,
+                    )
+                    return positions
             log.warning("Socrata returned empty results")
         except Exception as exc:
             log.warning("Socrata API failed (%s), falling back to ZIP download", exc)

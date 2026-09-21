@@ -47,9 +47,12 @@ Two caveats worth remembering when reading the card:
 - Positions are as at **Tuesday's close** and published the **following
   Friday**, so the freshest report is three to ten days old, and the trend
   numbers only move on Fridays.
-- Several gold contracts (full-size, micro) report under the same commodity
-  code. Only the full-size COMEX contract enters the series; the card names
-  the contract it is showing.
+- Several gold contracts (full-size, micro) answer a loose name search.
+  The series asks for the full-size COMEX contract by its contract market
+  code, then by its exact name; only if both fail does it fall back to a
+  name search and de-duplicate what comes back, keeping the largest
+  contract per week. The card names the contract it is showing, and the
+  health report flags a run served by a fallback filter.
 
 ## Deployment (GitHub Pages)
 
