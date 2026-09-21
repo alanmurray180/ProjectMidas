@@ -1,5 +1,6 @@
 from .metal_price import MetalPriceClient
 from .cftc import CFTCClient
+from .cot_trends import COTTrends
 from .dxy import DXYClient
 from .etf import GoldETFClient
 from .etf_scorecard import GoldETFScorecard
@@ -14,6 +15,7 @@ from .wgc import WGCETFClient
 __all__ = [
     "MetalPriceClient",
     "CFTCClient",
+    "COTTrends",
     "DXYClient",
     "GoldETFClient",
     "GoldETFScorecard",

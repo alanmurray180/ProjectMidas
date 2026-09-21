@@ -10,7 +10,42 @@ cp .env.example .env   # then fill in your keys
 python -m midas.app    # http://localhost:5000
 ```
 
-The Flask app serves both range variants from `/` via `?range=30d` / `?range=12m`.
+The Flask app serves both range variants from `/` via `?range=30d` / `?range=12m`,
+and the weekly COT history from `/cot_history.csv`.
+
+Tests cover the positioning maths and the panel that renders it:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+## CFTC positioning (COT)
+
+The COT card splits open interest into contracts by side — long, short,
+spread and net for each of the five trader categories, each as a share of
+open interest — and then measures how those numbers are moving: the change
+in the long leg, the short leg and the net over 1, 4, 13 and 52 weekly
+reports, plus where managed-money net sits in its own 52-week range as a
+percentile.
+
+The long and short legs are shown separately on purpose. A net that rises
+because shorts covered is a different market from one that rises because
+longs were added, and the net figure alone cannot tell them apart.
+
+History is fetched, not accumulated: the CFTC publishes five years of
+weekly reports, so the trend is right on the first run rather than a year
+from now. `dist/cot_history.csv` carries the full weekly series — every
+category, every leg — for use in a spreadsheet, and the card links to it.
+
+Two caveats worth remembering when reading the card:
+
+- Positions are as at **Tuesday's close** and published the **following
+  Friday**, so the freshest report is three to ten days old, and the trend
+  numbers only move on Fridays.
+- Several gold contracts (full-size, micro) report under the same commodity
+  code. Only the full-size COMEX contract enters the series; the card names
+  the contract it is showing.
 
 ## Deployment (GitHub Pages)
 

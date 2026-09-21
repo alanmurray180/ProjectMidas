@@ -132,6 +132,81 @@
     .card.full-width {
       grid-column: 1 / -1;
     }
+    /* ---- COT positioning card ----------------------------------------
+       A wide table of contract counts: numbers right-aligned and tabular so
+       the columns line up, and the whole thing scrollable rather than
+       wrapped, since a wrapped positioning row is unreadable on a phone. */
+    /* Four summary tiles where there is room, fewer where there is not:
+       at 4 fixed columns the fourth ran off the side of a phone. */
+    .cot-summary {
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      margin-bottom: 1.2rem;
+    }
+    .cot-table-wrap { overflow-x: auto; }
+    .cot-table { min-width: 860px; font-size: 0.85rem; }
+    .cot-table td.num, .cot-table th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .cot-table td.pos { color: var(--green); }
+    .cot-table td.neg { color: var(--red); }
+    .cot-table .meta { font-size: 0.7rem; margin-top: 0.1rem; }
+    .cot-table tr.cot-highlight { background: rgba(212, 168, 67, 0.07); }
+    .cot-table tr.cot-total td {
+      border-top: 1px solid rgba(212, 168, 67, 0.3);
+      color: var(--text-muted);
+    }
+    .cot-charts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.2rem;
+    }
+    @media (max-width: 800px) {
+      .cot-charts { grid-template-columns: 1fr; }
+    }
+    .cot-chart {
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      padding: 0.7rem 0.6rem 0.5rem;
+    }
+    .cot-chart svg { margin-top: 0.4rem; }
+    .cot-chart-foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-top: 0.2rem;
+    }
+    .key-long, .key-short {
+      display: inline-block;
+      width: 0.7rem;
+      height: 2px;
+      vertical-align: middle;
+      margin-right: 0.15rem;
+    }
+    .key-long { background: var(--green); }
+    .key-short { background: var(--red); margin-left: 0.5rem; }
+    /* Where the latest net sits inside its 52-week range. */
+    .cot-range {
+      position: relative;
+      height: 4px;
+      margin-top: 0.5rem;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.12);
+    }
+    .cot-range span {
+      position: absolute;
+      top: -3px;
+      width: 2px;
+      height: 10px;
+      background: var(--gold);
+    }
+    a.cot-csv {
+      color: var(--gold);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(212, 175, 55, 0.4);
+    }
     .range-toggle {
       display: inline-flex;
       gap: 0;
@@ -745,42 +820,153 @@
 
     <!-- COT Positioning (full width) -->
     <div class="card full-width">
-      <h2>CFTC COT Positioning</h2>
+      <h2>CFTC COT Positioning &mdash; Contracts by Side</h2>
       {% if cot and not cot.get('error') %}
-        <div class="meta" style="margin-bottom: 1rem;">Report date: {{ cot.report_date }}</div>
-        <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="meta" style="margin-bottom: 1rem;">
+          {{ cot.market_name }} &middot; report date {{ cot.report_date }}
+          ({{ cot.report_age_days }} days old) &middot; positions as at Tuesday's
+          close, published the following Friday &middot;
+          {{ cot.history_weeks }} weekly reports from {{ cot.history_start }}
+          {% if links.get('cot_csv') %}
+            &middot; <a class="cot-csv" href="{{ links['cot_csv'] }}">download history (CSV)</a>
+          {% endif %}
+        </div>
+
+        {# Managed money first and on its own: it is the speculative side, so
+           it is the one whose crowding matters.  The table below carries the
+           same figures for every category. #}
+        <div class="stat-grid cot-summary">
           <div class="stat">
-            <div class="stat-label">Managed Money Long</div>
-            <div class="stat-value">{{ cot.mm_long }}</div>
+            <div class="stat-label">Managed Money Net</div>
+            <div class="stat-value {% if cot.mm_net_positive %}positive{% else %}negative{% endif %}">{{ cot.mm_net }}</div>
+            <div class="meta">{{ cot.mm_long }} long vs {{ cot.mm_short }} short</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Managed Money Short</div>
-            <div class="stat-value">{{ cot.mm_short }}</div>
+            <div class="stat-label">MM Net &mdash; week on week</div>
+            <div class="stat-value">{{ cot.mm_net_change_1w }}</div>
+            <div class="meta">4w {{ cot.mm_net_change_4w }} &middot; 13w {{ cot.mm_net_change_13w }} &middot; 52w {{ cot.mm_net_change_52w }}</div>
           </div>
           <div class="stat">
-            <div class="stat-label">MM Net Position</div>
-            <div class="stat-value">{{ cot.mm_net }}</div>
+            <div class="stat-label">MM Net vs {{ cot.context_weeks }}w range</div>
+            <div class="stat-value">{{ cot.context_label }}</div>
+            <div class="meta">{{ cot.context_percentile }}th percentile &middot; low {{ cot.context_low }} &middot; high {{ cot.context_high }}</div>
+            <div class="cot-range"><span style="left: {{ cot.context_range_pct }}%;"></span></div>
           </div>
           <div class="stat">
             <div class="stat-label">Open Interest</div>
             <div class="stat-value">{{ cot.open_interest }}</div>
+            <div class="meta">1w {{ cot.oi_change_1w }} &middot; 4w {{ cot.oi_change_4w }}</div>
           </div>
-          <div class="stat">
-            <div class="stat-label">Producer Long</div>
-            <div class="stat-value">{{ cot.prod_long }}</div>
+        </div>
+
+        {# Two charts rather than one: the net line says where positioning
+           sits, the long and short lines say how it got there — a net that
+           climbs because shorts covered is a different market from one that
+           climbs because longs were added. #}
+        <div class="cot-charts">
+          <div class="cot-chart">
+            <div class="stat-label">Managed money net &middot; last {{ cot.plot_weeks }} weeks</div>
+            <svg viewBox="0 0 {{ cot.net_chart.w }} {{ cot.net_chart.h }}" width="100%" height="100" preserveAspectRatio="none" style="display: block;">
+              <line x1="0" y1="{{ cot.net_chart.zero_y }}" x2="{{ cot.net_chart.w }}" y2="{{ cot.net_chart.zero_y }}"
+                stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="4 4"
+                vector-effect="non-scaling-stroke" />
+              <polyline points="{{ cot.net_chart.points }}" fill="none"
+                stroke="{% if cot.mm_net_positive %}var(--green){% else %}var(--red){% endif %}"
+                stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"
+                vector-effect="non-scaling-stroke" />
+            </svg>
+            <div class="cot-chart-foot">
+              <span class="meta">{{ cot.plot_start }}</span>
+              <span class="meta">zero line dashed &middot; {{ cot.report_date }}</span>
+            </div>
           </div>
-          <div class="stat">
-            <div class="stat-label">Producer Short</div>
-            <div class="stat-value">{{ cot.prod_short }}</div>
+          <div class="cot-chart">
+            <div class="stat-label">Managed money gross &middot; long vs short</div>
+            <svg viewBox="0 0 {{ cot.gross_chart.w }} {{ cot.gross_chart.h }}" width="100%" height="100" preserveAspectRatio="none" style="display: block;">
+              <polyline points="{{ cot.gross_chart.long }}" fill="none" stroke="var(--green)"
+                stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"
+                vector-effect="non-scaling-stroke" />
+              <polyline points="{{ cot.gross_chart.short }}" fill="none" stroke="var(--red)"
+                stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"
+                vector-effect="non-scaling-stroke" />
+            </svg>
+            <div class="cot-chart-foot">
+              <span class="meta"><span class="key-long"></span> long <span class="key-short"></span> short</span>
+              <span class="meta">{{ cot.gross_chart.lo }} &ndash; {{ cot.gross_chart.hi }} contracts</span>
+            </div>
           </div>
-          <div class="stat">
-            <div class="stat-label">Swap Dealer Long</div>
-            <div class="stat-value">{{ cot.swap_long }}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Swap Dealer Short</div>
-            <div class="stat-value">{{ cot.swap_short }}</div>
-          </div>
+        </div>
+
+        <div class="cot-table-wrap">
+          <table class="cot-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th class="num">Long</th>
+                <th class="num">Short</th>
+                <th class="num">Spread</th>
+                <th class="num">Net</th>
+                <th class="num">L/S</th>
+                <th class="num">% OI long</th>
+                {% for lb in cot.lookbacks %}
+                  <th class="num">&Delta; net {{ lb }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in cot.categories %}
+                <tr class="{% if c.is_total %}cot-total{% endif %}{% if c.is_mm %} cot-highlight{% endif %}">
+                  <td>
+                    {{ c.label }}
+                    <div class="meta">{{ c.note }}</div>
+                  </td>
+                  <td class="num">{{ c.long }}</td>
+                  <td class="num">{{ c.short }}</td>
+                  <td class="num">{{ c.spread }}</td>
+                  <td class="num {% if c.net_positive %}pos{% else %}neg{% endif %}">{{ c.net }}</td>
+                  <td class="num">{{ c.ratio }}</td>
+                  <td class="num">{{ c.long_pct_oi }}</td>
+                  {% for lb in cot.lookbacks %}
+                    <td class="num {% if not c.trend.net[lb].flat %}{% if c.trend.net[lb].positive %}pos{% else %}neg{% endif %}{% endif %}">{{ c.trend.net[lb].text }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# The net column answers "which way", these two answer "who moved":
+           a net that rose because shorts covered is a different market from
+           one that rose because longs were added. #}
+        <div class="cot-table-wrap" style="margin-top: 1rem;">
+          <table class="cot-table">
+            <thead>
+              <tr>
+                <th>Flow by leg</th>
+                {% for lb in cot.lookbacks %}
+                  <th class="num">&Delta; long {{ lb }}</th>
+                {% endfor %}
+                {% for lb in cot.lookbacks %}
+                  <th class="num">&Delta; short {{ lb }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in cot.categories %}
+                <tr class="{% if c.is_total %}cot-total{% endif %}{% if c.is_mm %} cot-highlight{% endif %}">
+                  <td>{{ c.label }}</td>
+                  {% for lb in cot.lookbacks %}
+                    <td class="num {% if not c.trend.long[lb].flat %}{% if c.trend.long[lb].positive %}pos{% else %}neg{% endif %}{% endif %}">{{ c.trend.long[lb].text }}</td>
+                  {% endfor %}
+                  {% for lb in cot.lookbacks %}
+                    {# A rising short book is bearish positioning, so the
+                       colours are inverted here on purpose. #}
+                    <td class="num {% if not c.trend.short[lb].flat %}{% if c.trend.short[lb].positive %}neg{% else %}pos{% endif %}{% endif %}">{{ c.trend.short[lb].text }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       {% elif cot and cot.get('error') %}
         <div class="error-msg">{{ cot.error }}</div>

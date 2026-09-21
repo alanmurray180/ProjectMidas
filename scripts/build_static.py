@@ -4,8 +4,9 @@
 The Flask app serves both range variants from one route via ``?range=``.
 Pages has no server, so each variant becomes its own file:
 
-    dist/index.html   30-day view
-    dist/12m.html     12-month view
+    dist/index.html      30-day view
+    dist/12m.html        12-month view
+    dist/cot_history.csv weekly CFTC positioning history
 
 Every upstream is fetched once per build, so the published site is as fresh
 as the last successful workflow run.
@@ -121,9 +122,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from midas.app import STATIC_LINKS, build_context, render_context
+    from midas.app import STATIC_LINKS, build_context, cot_history_csv, render_context
 
     health: dict | None = None
+    cot_csv = ""
     rendered: dict[str, str] = {}
 
     for period, filename in PAGES.items():
@@ -134,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
             # Carries the build stamp so a page already open can poll this
             # file, notice a newer build has been published, and reload.
             health = dict(context["health"], generated_at=context["generated_at_iso"])
+            # The weekly COT series is the same whichever range is showing,
+            # so it is captured once and published as a file: the page links
+            # to it, and a spreadsheet can read it without scraping HTML.
+            cot = context.get("cot") or {}
+            cot_csv = cot_history_csv(cot.get("series") or [])
 
     assert health is not None, f"{_HEALTH_PERIOD} must be among {list(PAGES)}"
     report_health(health)
@@ -167,6 +174,11 @@ def main(argv: list[str] | None = None) -> int:
     (args.out_dir / "health.json").write_text(
         json.dumps(health, indent=2), encoding="utf-8"
     )
+
+    if cot_csv:
+        (args.out_dir / "cot_history.csv").write_text(cot_csv, encoding="utf-8")
+    else:
+        print("no COT history to publish; cot_history.csv not written", flush=True)
 
     print("", flush=True)
     for filename in PAGES.values():
