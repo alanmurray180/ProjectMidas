@@ -1,0 +1,35 @@
+name: Probe CFTC fields
+
+# Prints the field names and figures the CFTC actually returns for the
+# latest gold report, in both the futures-only and the combined dataset.
+# A leg whose field name does not match parses as zero and renders as a
+# category that does not trade, so this is how that class of bug gets
+# diagnosed against the published report rather than from memory.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Dump COT fields
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Probe CFTC datasets
+        env:
+          FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
+        run: python scripts/cot_probe.py
