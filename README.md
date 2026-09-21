@@ -33,10 +33,30 @@ The long and short legs are shown separately on purpose. A net that rises
 because shorts covered is a different market from one that rises because
 longs were added, and the net figure alone cannot tell them apart.
 
+Both CFTC reports are shown, one table each: **futures only**, the cleaner
+read on outright speculative positioning and the basis most commentary
+quotes, and **options and futures combined**, which folds in delta-adjusted
+options and is what the CFTC's own published combined tables show. They
+are not roundings of each other — on 15 September 2026 open interest read
+409,899 against 577,454 — so neither figure appears without naming its
+dataset. The charts, the 52-week percentile and the one-pager column all
+use futures only, and say so.
+
 History is fetched, not accumulated: the CFTC publishes five years of
 weekly reports, so the trend is right on the first run rather than a year
 from now. `dist/cot_history.csv` carries the full weekly series — every
-category, every leg — for use in a spreadsheet, and the card links to it.
+category, every leg, both datasets, tagged with a `dataset` column — for
+use in a spreadsheet, and the card links to it.
+
+Field names are the trap here, and they are not guessable: `prod_merc` and
+`other_rept` carry no `_all` suffix while `swap`, `m_money` long/short and
+`nonrept` do, `m_money` spread has none either, and the swap columns carry
+a doubled underscore. A name that does not match parses as zero, which on
+screen is a category holding no position rather than an error — so every
+snapshot is checked against the invariant that gross long equals gross
+short, and a parse that fails it degrades the panel instead of publishing.
+`scripts/cot_probe.py` resolves the mapping against a live row from both
+datasets and runs in the **Check data sources** workflow.
 
 The one-pager carries the condensed version — managed-money net, its
 crowding label, and the net change over 1, 4 and 13 weeks — so positioning

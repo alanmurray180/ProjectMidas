@@ -43,8 +43,29 @@ GOLD_COMMODITY_CODE = "088691"
 # one row per weekly report.
 GOLD_CONTRACT_MARKET_CODE = "088691"
 
-# Socrata open-data endpoint for the disaggregated futures report.
-SOCRATA_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
+# The two disaggregated datasets, and what each one counts.
+#
+# Futures-only is the basis most positioning commentary quotes; combined
+# folds in delta-adjusted options, which is what the CFTC's own "Options
+# and Futures Combined" tables show.  The same report date reads very
+# differently across them — open interest 409,899 against 577,454 on
+# 15 September 2026 — so a figure is meaningless without saying which.
+SOCRATA_DATASETS = {
+    "futures_only": "https://publicreporting.cftc.gov/resource/72hh-3qpy.json",
+    "combined": "https://publicreporting.cftc.gov/resource/kh3c-gbw2.json",
+}
+
+DATASET_LABELS = {
+    "futures_only": "Futures only",
+    "combined": "Options and futures combined",
+}
+
+# The bulk archives behind the same two reports, for the ZIP fallback.
+ZIP_PREFIXES = {"futures_only": "fut_disagg_txt", "combined": "com_disagg_txt"}
+
+# Kept as the module-level default: the futures-only report is what the
+# dashboard leads with.
+SOCRATA_BASE = SOCRATA_DATASETS["futures_only"]
 
 # The full-size COMEX contract, as the CFTC names it.  Micro gold and the
 # enumerated combined contracts answer the same loose "%GOLD%" filters, and
@@ -117,8 +138,16 @@ def _int(val: object) -> int:
 class CFTCClient:
     """Fetch and parse CFTC COT disaggregated futures data for gold."""
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(self, base_url: str | None = None, dataset: str = "futures_only"):
+        if dataset not in SOCRATA_DATASETS:
+            raise ValueError(
+                f"unknown dataset {dataset!r}; expected one of "
+                f"{', '.join(SOCRATA_DATASETS)}"
+            )
         self.base_url = base_url or CFTC_BASE
+        self.dataset = dataset
+        self.dataset_label = DATASET_LABELS[dataset]
+        self.socrata_url = SOCRATA_DATASETS[dataset]
         # Which Socrata filter strategy actually returned rows, or None if
         # the query never ran.  Read by the dashboard's health report.
         self.source_used: str | None = None
@@ -169,10 +198,12 @@ class CFTCClient:
                 "$order": "report_date_as_yyyy_mm_dd DESC",
                 "$limit": str(limit * rows_per_report),
             }
-            log.info("Socrata query [%s]: %s", label, where_clause)
+            log.info(
+                "Socrata query [%s] on %s: %s", label, self.dataset, where_clause
+            )
             try:
                 resp = httpx.get(
-                    SOCRATA_BASE,
+                    self.socrata_url,
                     params=params,
                     headers=headers,
                     timeout=30,
@@ -197,7 +228,7 @@ class CFTCClient:
         log.warning("All Socrata filter strategies returned 0 rows; fetching sample row")
         try:
             resp = httpx.get(
-                SOCRATA_BASE,
+                self.socrata_url,
                 params={"$limit": "1"},
                 headers=headers,
                 timeout=30,
@@ -260,7 +291,7 @@ class CFTCClient:
 
     def _download_zip(self, year: int) -> pd.DataFrame:
         """Download and unzip the disaggregated futures report for a year."""
-        url = f"{self.base_url}/fut_disagg_txt_{year}.zip"
+        url = f"{self.base_url}/{ZIP_PREFIXES[self.dataset]}_{year}.zip"
         resp = httpx.get(url, timeout=60, follow_redirects=True, headers=_HTTP_HEADERS)
         resp.raise_for_status()
 

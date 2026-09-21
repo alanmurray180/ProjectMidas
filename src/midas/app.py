@@ -307,142 +307,169 @@ def cot_history_csv(rows: list[dict]) -> str:
     return buf.getvalue()
 
 
-def _fetch_cot_positions() -> dict | None:
-    try:
-        from midas.clients.cftc import CFTCClient
-        from midas.clients.cot_trends import COT_LOOKBACK_LABELS, COTTrends
+def _cot_dataset_payload(dataset: str) -> dict:
+    """Format one CFTC dataset's positioning into template-ready figures.
 
-        client = CFTCClient()
-        history = client.get_history()
-        data = COTTrends(history).compute()
+    Both the futures-only and the combined report go through here, so the
+    two tables on the card cannot drift apart in their formatting or in
+    which lookbacks they show.
+    """
+    from midas.clients.cftc import CFTCClient
+    from midas.clients.cot_trends import COT_LOOKBACK_LABELS, COTTrends
 
-        latest = history[-1]
-        categories = [
-            {
-                "label": c["label"],
-                "note": c["note"],
-                "long": f"{c['long']:,}",
-                "short": f"{c['short']:,}",
-                "spread": f"{c['spread']:,}" if c["spread"] else "—",
-                "net": _signed(c["net"]),
-                "net_positive": c["net"] >= 0,
-                "long_pct_oi": (
-                    f"{c['long_pct_oi']:.1f}%" if c["long_pct_oi"] is not None else "—"
-                ),
-                "short_pct_oi": (
-                    f"{c['short_pct_oi']:.1f}%" if c["short_pct_oi"] is not None else "—"
-                ),
-                "ratio": (
-                    f"{c['long_short_ratio']:.2f}x"
-                    if c["long_short_ratio"] is not None
-                    else "—"
-                ),
-                # Trends per leg, so the table can answer "who is adding" —
-                # a net figure alone cannot tell longs covering from shorts
-                # piling in, and those are different markets.
-                "trend": {
-                    leg: {
-                        label: {
-                            "text": _signed(c["changes"][leg][label]),
-                            "positive": (c["changes"][leg][label] or 0) > 0,
-                            # An unchanged or unavailable leg is neither
-                            # bullish nor bearish, so it stays uncoloured.
-                            "flat": not c["changes"][leg][label],
-                        }
-                        for label in COT_LOOKBACK_LABELS
-                    }
-                    for leg in ("long", "short", "net")
-                },
-                "is_total": c["key"] == "total",
-                "is_mm": c["key"] == "mm",
-            }
-            for c in data["categories"]
-        ]
+    client = CFTCClient(dataset=dataset)
+    history = client.get_history()
+    data = COTTrends(history).compute()
+    latest = history[-1]
 
-        mm = next(c for c in data["categories"] if c["key"] == "mm")
-        ctx = data["context"]
-        net_series = [row["mm_net"] for row in data["series"]]
-        long_series = [row["mm_long"] for row in data["series"]]
-        short_series = [row["mm_short"] for row in data["series"]]
-
-        # Plot at most two years: five years of weekly points in a 560px box
-        # is a smear, and the recent shape is what the eye is reading for.
-        plot_weeks = min(len(net_series), 104)
-        net_chart = _cot_chart(net_series[-plot_weeks:])
-        gross_lo = min(min(long_series[-plot_weeks:]), min(short_series[-plot_weeks:]))
-        gross_hi = max(max(long_series[-plot_weeks:]), max(short_series[-plot_weeks:]))
-        gross_w, gross_h = 560, 90
-
-        report_age = (date.today() - data["report_date"]).days
-
-        return {
-            "report_date": data["report_date"].isoformat(),
-            "report_age_days": report_age,
-            "market_name": data["market_name"] or "COMEX gold futures",
-            "history_weeks": data["weeks"],
-            "history_start": data["history_start"].isoformat(),
-            "open_interest": f"{data['open_interest']:,}",
-            "balances": data["balances"],
-            "oi_change_1w": _signed(data["oi_changes"]["1w"]),
-            "oi_change_4w": _signed(data["oi_changes"]["4w"]),
-            "categories": categories,
-            "lookbacks": list(COT_LOOKBACK_LABELS),
-            # Headline managed-money figures, kept at the top level so the
-            # summary row does not have to dig through the table.
-            "mm_long": f"{latest.mm_long:,}",
-            "mm_short": f"{latest.mm_short:,}",
-            "mm_net": f"{latest.mm_net:+,}",
-            "mm_net_positive": latest.mm_net >= 0,
-            "mm_net_change_1w": _signed(mm["changes"]["net"]["1w"]),
-            "mm_net_change_4w": _signed(mm["changes"]["net"]["4w"]),
-            "mm_net_change_13w": _signed(mm["changes"]["net"]["13w"]),
-            "mm_net_change_52w": _signed(mm["changes"]["net"]["52w"]),
-            # The same net changes with their direction attached, for the
-            # one-pager, which colours them rather than tabulating them.
-            "mm_net_trend": {
-                label: {
-                    "text": _signed(mm["changes"]["net"][label]),
-                    "positive": (mm["changes"]["net"][label] or 0) > 0,
-                    "flat": not mm["changes"]["net"][label],
-                }
-                for label in COT_LOOKBACK_LABELS
-            },
-            "context_label": ctx["label"],
-            "context_weeks": ctx["weeks"],
-            "context_percentile": (
-                f"{ctx['percentile']:.0f}" if ctx["percentile"] is not None else "—"
+    categories = [
+        {
+            "label": c["label"],
+            "note": c["note"],
+            "long": f"{c['long']:,}",
+            "short": f"{c['short']:,}",
+            "spread": f"{c['spread']:,}" if c["spread"] else "—",
+            "net": _signed(c["net"]),
+            "net_positive": c["net"] >= 0,
+            "long_pct_oi": (
+                f"{c['long_pct_oi']:.1f}%" if c["long_pct_oi"] is not None else "—"
             ),
-            "context_high": f"{ctx['high']:+,}",
-            "context_low": f"{ctx['low']:+,}",
-            "context_range_pct": f"{ctx['range_pct']:.1f}",
-            "plot_weeks": plot_weeks,
-            "plot_start": data["series"][-plot_weeks]["report_date"],
-            "net_chart": net_chart,
-            "gross_chart": {
-                "long": _cot_line(
-                    long_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
-                ),
-                "short": _cot_line(
-                    short_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
-                ),
-                "w": gross_w,
-                "h": gross_h,
-                "lo": f"{gross_lo:,}",
-                "hi": f"{gross_hi:,}",
+            "short_pct_oi": (
+                f"{c['short_pct_oi']:.1f}%" if c["short_pct_oi"] is not None else "—"
+            ),
+            "ratio": (
+                f"{c['long_short_ratio']:.2f}x"
+                if c["long_short_ratio"] is not None
+                else "—"
+            ),
+            # Trends per leg, so the table can answer "who is adding" — a net
+            # figure alone cannot tell longs covering from shorts piling in,
+            # and those are different markets.
+            "trend": {
+                leg: {
+                    label: {
+                        "text": _signed(c["changes"][leg][label]),
+                        "positive": (c["changes"][leg][label] or 0) > 0,
+                        # An unchanged or unavailable leg is neither bullish
+                        # nor bearish, so it stays uncoloured.
+                        "flat": not c["changes"][leg][label],
+                    }
+                    for label in COT_LOOKBACK_LABELS
+                }
+                for leg in ("long", "short", "net")
             },
-            # The full weekly series, published alongside the page as CSV so
-            # the history is usable in a spreadsheet rather than only on
-            # screen.  Not rendered into the HTML.
-            "series": data["series"],
-            # Which Socrata filter answered.  The commodity-code query is the
-            # precise one; the looser name matches are fallbacks worth
-            # knowing about, since they can pick up the wrong contract.
-            "source": client.source_used,
+            "is_total": c["key"] == "total",
+            "is_mm": c["key"] == "mm",
         }
+        for c in data["categories"]
+    ]
+
+    mm = next(c for c in data["categories"] if c["key"] == "mm")
+    ctx = data["context"]
+    net_series = [row["mm_net"] for row in data["series"]]
+    long_series = [row["mm_long"] for row in data["series"]]
+    short_series = [row["mm_short"] for row in data["series"]]
+
+    # Plot at most two years: five years of weekly points in a 560px box is
+    # a smear, and the recent shape is what the eye is reading for.
+    plot_weeks = min(len(net_series), 104)
+    gross_lo = min(min(long_series[-plot_weeks:]), min(short_series[-plot_weeks:]))
+    gross_hi = max(max(long_series[-plot_weeks:]), max(short_series[-plot_weeks:]))
+    gross_w, gross_h = 560, 90
+
+    return {
+        "dataset": dataset,
+        "dataset_label": client.dataset_label,
+        "report_date": data["report_date"].isoformat(),
+        "report_age_days": (date.today() - data["report_date"]).days,
+        "market_name": data["market_name"] or "COMEX gold futures",
+        "history_weeks": data["weeks"],
+        "history_start": data["history_start"].isoformat(),
+        "open_interest": f"{data['open_interest']:,}",
+        "balances": data["balances"],
+        "oi_change_1w": _signed(data["oi_changes"]["1w"]),
+        "oi_change_4w": _signed(data["oi_changes"]["4w"]),
+        "categories": categories,
+        "lookbacks": list(COT_LOOKBACK_LABELS),
+        # Headline managed-money figures, kept at the top level so the
+        # summary row does not have to dig through the table.
+        "mm_long": f"{latest.mm_long:,}",
+        "mm_short": f"{latest.mm_short:,}",
+        "mm_net": _signed(latest.mm_net),
+        "mm_net_positive": latest.mm_net >= 0,
+        "mm_net_change_1w": _signed(mm["changes"]["net"]["1w"]),
+        "mm_net_change_4w": _signed(mm["changes"]["net"]["4w"]),
+        "mm_net_change_13w": _signed(mm["changes"]["net"]["13w"]),
+        "mm_net_change_52w": _signed(mm["changes"]["net"]["52w"]),
+        # The same net changes with their direction attached, for the
+        # one-pager, which colours them rather than tabulating them.
+        "mm_net_trend": {
+            label: {
+                "text": _signed(mm["changes"]["net"][label]),
+                "positive": (mm["changes"]["net"][label] or 0) > 0,
+                "flat": not mm["changes"]["net"][label],
+            }
+            for label in COT_LOOKBACK_LABELS
+        },
+        "context_label": ctx["label"],
+        "context_weeks": ctx["weeks"],
+        "context_percentile": (
+            f"{ctx['percentile']:.0f}" if ctx["percentile"] is not None else "—"
+        ),
+        "context_high": _signed(ctx["high"]),
+        "context_low": _signed(ctx["low"]),
+        "context_range_pct": f"{ctx['range_pct']:.1f}",
+        "plot_weeks": plot_weeks,
+        "plot_start": data["series"][-plot_weeks]["report_date"],
+        "net_chart": _cot_chart(net_series[-plot_weeks:]),
+        "gross_chart": {
+            "long": _cot_line(
+                long_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
+            ),
+            "short": _cot_line(
+                short_series[-plot_weeks:], gross_lo, gross_hi, gross_w, gross_h
+            ),
+            "w": gross_w,
+            "h": gross_h,
+            "lo": f"{gross_lo:,}",
+            "hi": f"{gross_hi:,}",
+        },
+        # The full weekly series, published alongside the page as CSV so the
+        # history is usable in a spreadsheet rather than only on screen.
+        "series": [dict(row, dataset=dataset) for row in data["series"]],
+        # Which Socrata filter answered.  The contract-market-code query is
+        # the precise one; the looser name matches are fallbacks worth
+        # knowing about, since they can pick up the wrong contract.
+        "source": client.source_used,
+    }
+
+
+def _fetch_cot_positions() -> dict | None:
+    """Positioning from both CFTC datasets, futures-only leading.
+
+    The two are shown side by side because they answer different
+    questions and neither is a rounding of the other: futures-only is the
+    cleaner read on outright speculative positioning, while the combined
+    report is what a published CFTC table quotes, so it is the one a
+    reader reconciles against.
+    """
+    try:
+        out = _cot_dataset_payload("futures_only")
     except Exception as exc:
         import traceback
         traceback.print_exc()
         return {"error": str(exc)}
+
+    # The combined report is the reconciliation view, not the headline, so
+    # losing it costs that block rather than the card.
+    try:
+        combined = _cot_dataset_payload("combined")
+        out["series"] = out["series"] + combined["series"]
+    except Exception as exc:
+        log.warning("Combined COT dataset unavailable: %s", exc)
+        combined = {"error": str(exc)}
+    out["combined"] = combined
+    return out
 
 
 def _fetch_etf_scorecard() -> dict | None:

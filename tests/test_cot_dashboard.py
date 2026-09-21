@@ -209,13 +209,18 @@ def test_missing_history_degrades_to_an_error_card(monkeypatch):
     assert cot["error"]
 
 
-def test_csv_export_carries_every_week(cot):
+def test_csv_export_carries_every_week_of_both_datasets(cot):
     csv_text = midas_app.cot_history_csv(cot["series"])
     lines = csv_text.strip().split("\n")
 
-    assert len(lines) == 61  # header plus 60 weekly reports
+    # Header plus 60 weekly reports for each of the two datasets, tagged so
+    # a spreadsheet can pivot on which report a row came from rather than
+    # silently averaging two different instruments.
+    assert len(lines) == 121
     assert lines[0].startswith("report_date,market_name,open_interest,mm_long,mm_short")
-    assert lines[-1].split(",")[3] == "179000"
+    assert "dataset" in lines[0]
+    datasets = {line.split(",")[-1] for line in lines[1:]}
+    assert datasets == {"futures_only", "combined"}
 
 
 def test_card_renders_with_the_new_panel(cot):
@@ -295,3 +300,33 @@ def test_unbalanced_parse_degrades_the_panel(monkeypatch):
 
 def test_a_clean_report_balances(cot):
     assert cot["balances"] is True
+
+
+def test_both_datasets_are_reported_side_by_side(cot):
+    """Futures-only leads; the combined report rides alongside it."""
+    assert cot["dataset"] == "futures_only"
+    assert cot["dataset_label"] == "Futures only"
+    assert cot["combined"]["dataset_label"] == "Options and futures combined"
+    assert cot["combined"]["categories"][0]["label"] == "Managed Money"
+
+
+def test_a_dead_combined_dataset_costs_only_its_block(monkeypatch):
+    """The reconciliation view is not worth the whole card."""
+    from midas.clients import cftc as cftc_module
+
+    real = _history()
+
+    def _history_or_fail(self, *a, **kw):
+        if self.dataset == "combined":
+            raise RuntimeError("combined dataset unavailable")
+        return real
+
+    monkeypatch.setattr(cftc_module.CFTCClient, "get_history", _history_or_fail)
+    cot = midas_app._fetch_cot_positions()
+
+    assert not cot.get("error")
+    assert cot["mm_long"] == "179,000"
+    assert cot["combined"]["error"]
+    # The card still publishes, and the CSV carries the dataset that lived.
+    assert {row["dataset"] for row in cot["series"]} == {"futures_only"}
+    assert midas_app.panel_health({"cot": cot})["detail"]["cot"]["state"] == "ok"
