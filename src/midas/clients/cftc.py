@@ -68,6 +68,45 @@ _HTTP_HEADERS = {
 }
 
 
+# What each leg is called in the Socrata datasets, most likely name first.
+#
+# The naming is not consistent and cannot be guessed: some legs carry an
+# ``_all`` suffix and some do not, and the swap columns carry a doubled
+# underscore.  Socrata derives these from the report's own column headers
+# and appends ``_1``/``_2`` to the old and other crop-year duplicates,
+# which must never be read as the combined figure.  Verified against the
+# live datasets with ``scripts/cot_probe.py``; the futures-only and the
+# options-and-futures-combined datasets agree on all of it.
+SOCRATA_FIELDS: dict[str, tuple[str, ...]] = {
+    "prod_long": ("prod_merc_positions_long", "prod_merc_positions_long_all"),
+    "prod_short": ("prod_merc_positions_short", "prod_merc_positions_short_all"),
+    "swap_long": ("swap_positions_long_all", "swap__positions_long_all"),
+    "swap_short": ("swap__positions_short_all", "swap_positions_short_all"),
+    "swap_spread": ("swap__positions_spread_all", "swap_positions_spread_all"),
+    "mm_long": ("m_money_positions_long_all", "m_money_positions_long"),
+    "mm_short": ("m_money_positions_short_all", "m_money_positions_short"),
+    "mm_spread": ("m_money_positions_spread", "m_money_positions_spread_all"),
+    "other_long": ("other_rept_positions_long", "other_rept_positions_long_all"),
+    "other_short": ("other_rept_positions_short", "other_rept_positions_short_all"),
+    "other_spread": ("other_rept_positions_spread", "other_rept_positions_spread_all"),
+    "nonrep_long": ("nonrept_positions_long_all", "nonrept_positions_long"),
+    "nonrep_short": ("nonrept_positions_short_all", "nonrept_positions_short"),
+    "open_interest": ("open_interest_all", "open_interest"),
+}
+
+
+def _pick(row: dict, names: tuple[str, ...]) -> int | None:
+    """Read the first field present, or None when the row has none of them.
+
+    None rather than zero: a leg the dataset spells differently is a parse
+    failure, and zero is a real position size that hides it.
+    """
+    for name in names:
+        if row.get(name) is not None:
+            return _int(row[name])
+    return None
+
+
 def _int(val: object) -> int:
     """Coerce a value to int, handling string/float from JSON."""
     if val is None:
@@ -182,22 +221,36 @@ class CFTCClient:
         date_str = row.get("report_date_as_yyyy_mm_dd", "")
         report_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
 
+        legs = {leg: _pick(row, names) for leg, names in SOCRATA_FIELDS.items()}
+        missing = [leg for leg, value in legs.items() if value is None]
+        if missing:
+            # A leg read as zero is indistinguishable on screen from a
+            # category that holds no position, which is how producer and
+            # other-reportable rows can sit at zero looking plausible.  Say
+            # so once, loudly, rather than publishing the silence.
+            log.warning(
+                "COT row %s: no field found for %s; available keys: %s",
+                report_date,
+                ", ".join(missing),
+                ", ".join(sorted(k for k in row if "positions" in k)),
+            )
+
         return COTPosition(
             report_date=report_date,
-            prod_long=_int(row.get("prod_merc_positions_long_all")),
-            prod_short=_int(row.get("prod_merc_positions_short_all")),
-            swap_long=_int(row.get("swap_positions_long_all") or row.get("swap__positions_long_all")),
-            swap_short=_int(row.get("swap__positions_short_all") or row.get("swap_positions_short_all")),
-            swap_spread=_int(row.get("swap__positions_spread_all") or row.get("swap_positions_spread_all")),
-            mm_long=_int(row.get("m_money_positions_long_all")),
-            mm_short=_int(row.get("m_money_positions_short_all")),
-            mm_spread=_int(row.get("m_money_positions_spread_all")),
-            other_long=_int(row.get("other_rept_positions_long_all")),
-            other_short=_int(row.get("other_rept_positions_short_all")),
-            other_spread=_int(row.get("other_rept_positions_spread_all")),
-            nonrep_long=_int(row.get("nonrept_positions_long_all")),
-            nonrep_short=_int(row.get("nonrept_positions_short_all")),
-            open_interest=_int(row.get("open_interest_all")),
+            prod_long=legs["prod_long"] or 0,
+            prod_short=legs["prod_short"] or 0,
+            swap_long=legs["swap_long"] or 0,
+            swap_short=legs["swap_short"] or 0,
+            swap_spread=legs["swap_spread"] or 0,
+            mm_long=legs["mm_long"] or 0,
+            mm_short=legs["mm_short"] or 0,
+            mm_spread=legs["mm_spread"] or 0,
+            other_long=legs["other_long"] or 0,
+            other_short=legs["other_short"] or 0,
+            other_spread=legs["other_spread"] or 0,
+            nonrep_long=legs["nonrep_long"] or 0,
+            nonrep_short=legs["nonrep_short"] or 0,
+            open_interest=legs["open_interest"] or 0,
             market_name=str(row.get("market_and_exchange_names") or "").strip(),
         )
 

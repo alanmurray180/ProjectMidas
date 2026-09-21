@@ -108,6 +108,13 @@ def _fallback_note(name: str, value: dict, payload: object) -> str | None:
         if source and source not in accepted:
             return f"on {source} fallback, {accepted[0]} unavailable"
 
+    # Gross long equals gross short in every real COT report, so a panel
+    # that fails it is showing mis-parsed figures — the state the producer
+    # and other-reportable rows were in when their field names stopped
+    # matching and they rendered as zero.
+    if name == "cot" and value.get("balances") is False:
+        return "gross long and short do not balance, a leg is mis-parsed"
+
     # The headline price and its history are separate calls, so the card can
     # render a current figure with no line under it.  That is a real partial
     # outage of the panel, not a cosmetic one.
@@ -375,6 +382,7 @@ def _fetch_cot_positions() -> dict | None:
             "history_weeks": data["weeks"],
             "history_start": data["history_start"].isoformat(),
             "open_interest": f"{data['open_interest']:,}",
+            "balances": data["balances"],
             "oi_change_1w": _signed(data["oi_changes"]["1w"]),
             "oi_change_4w": _signed(data["oi_changes"]["4w"]),
             "categories": categories,

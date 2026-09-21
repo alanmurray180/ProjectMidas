@@ -235,9 +235,22 @@ class COTTrends:
             for label, weeks in LOOKBACKS
         }
 
+        if not latest.balances:
+            log.warning(
+                "COT %s does not balance: %d long vs %d short — a leg is "
+                "missing or mis-parsed",
+                latest.report_date,
+                latest.total_long,
+                latest.total_short,
+            )
+
         return {
             "report_date": latest.report_date,
             "market_name": latest.market_name,
+            # Long must equal short in a clean report.  Carried through so
+            # the health check can fail the panel instead of publishing
+            # numbers that look plausible and are not.
+            "balances": latest.balances,
             "weeks": len(self.history),
             "history_start": self.history[0].report_date,
             "open_interest": latest.open_interest,

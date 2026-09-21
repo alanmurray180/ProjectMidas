@@ -14,23 +14,34 @@ from midas.models.gold import COTPosition
 
 
 def _socrata_row(day: str, mm_long: int, mm_short: int, market: str, oi: int) -> dict:
-    """A Socrata row with the field names the live dataset uses."""
+    """A Socrata row spelled the way the live datasets spell it.
+
+    The field names are inconsistent on purpose here: some legs carry
+    ``_all`` and some do not, and the swap columns carry a doubled
+    underscore.  That is what the API returns — a fixture that tidied it up
+    would pass while the dashboard read zeros, which is exactly what
+    happened to the producer and other-reportable rows.  The ``_1``/``_2``
+    fields are the old and other crop-year duplicates, present so a reader
+    that grabs the wrong one is caught.
+    """
     return {
         "report_date_as_yyyy_mm_dd": f"{day}T00:00:00.000",
         "market_and_exchange_names": market,
-        "cftc_commodity_code": "088691",
+        "cftc_contract_market_code": "088691",
         "open_interest_all": str(oi),
-        "prod_merc_positions_long_all": "50000",
-        "prod_merc_positions_short_all": "180000",
+        "prod_merc_positions_long": "50000",
+        "prod_merc_positions_long_1": "50000",
+        "prod_merc_positions_short": "180000",
+        "prod_merc_positions_short_1": "180000",
         "swap_positions_long_all": "30000",
         "swap__positions_short_all": "40000",
         "swap__positions_spread_all": "10000",
         "m_money_positions_long_all": str(mm_long),
         "m_money_positions_short_all": str(mm_short),
-        "m_money_positions_spread_all": "20000",
-        "other_rept_positions_long_all": "60000",
-        "other_rept_positions_short_all": "30000",
-        "other_rept_positions_spread_all": "15000",
+        "m_money_positions_spread": "20000",
+        "other_rept_positions_long": "60000",
+        "other_rept_positions_short": "30000",
+        "other_rept_positions_spread": "15000",
         "nonrept_positions_long_all": "40000",
         "nonrept_positions_short_all": "20000",
     }
@@ -95,10 +106,23 @@ def test_get_history_parses_and_dedupes_socrata_rows():
     assert history[-1].mm_net == 112_000
     assert history[-1].market_name == "GOLD - COMMODITY EXCHANGE INC."
     assert history[-1].swap_short == 40_000
+    # The legs whose field names have no ``_all`` suffix — the ones that
+    # silently read as zero and emptied the producer and other-reportable
+    # rows on the published page.
+    assert history[-1].prod_long == 50_000
+    assert history[-1].prod_short == 180_000
+    assert history[-1].other_long == 60_000
+    assert history[-1].other_short == 30_000
+    assert history[-1].other_spread == 15_000
+    assert history[-1].mm_spread == 20_000
 
 
 def _history(weeks: int = 60) -> list[COTPosition]:
-    """A rising managed-money net, one report a week up to last Tuesday."""
+    """A rising managed-money net, one report a week up to last Tuesday.
+
+    Producers carry the other side, so gross long equals gross short the
+    way a real report does and the balance check stays satisfied.
+    """
     end = date.today() - timedelta(days=(date.today().weekday() - 1) % 7)
     out = []
     for i in range(weeks):
@@ -107,7 +131,7 @@ def _history(weeks: int = 60) -> list[COTPosition]:
             COTPosition(
                 report_date=end - timedelta(weeks=weeks - 1 - i),
                 prod_long=50_000,
-                prod_short=140_000 + 1_000 * i,
+                prod_short=180_000 + 1_000 * i,
                 swap_long=30_000,
                 swap_short=40_000,
                 swap_spread=10_000,
@@ -233,3 +257,41 @@ def test_panel_health_flags_a_loose_name_match(cot):
 
     assert panel["state"] == "degraded"
     assert "commodity_name" in panel["note"]
+
+
+@respx.mock
+def test_a_leg_the_dataset_renames_is_caught_not_zeroed():
+    """The bug this guard exists for: a renamed field must not read as zero."""
+    row = _socrata_row("2025-05-13", 140_000, 28_000, "GOLD - COMMODITY EXCHANGE INC.", 500_000)
+    # The CFTC moves the producer legs behind a name we do not know.
+    row["producer_merchant_long"] = row.pop("prod_merc_positions_long")
+    row["producer_merchant_short"] = row.pop("prod_merc_positions_short")
+    row.pop("prod_merc_positions_long_1")
+    row.pop("prod_merc_positions_short_1")
+    respx.get(SOCRATA_BASE).mock(return_value=httpx.Response(200, json=[row]))
+
+    history = CFTCClient().get_history(weeks=52)
+
+    # Still parses — one dead leg must not cost the whole panel — but the
+    # books no longer balance, which is what the health check reads.
+    assert history[-1].prod_long == 0
+    assert history[-1].balances is False
+
+
+def test_unbalanced_parse_degrades_the_panel(monkeypatch):
+    broken = _history()
+    # Wipe one leg the way a renamed field would.
+    for pos in broken:
+        pos.other_long = 0
+    monkeypatch.setattr(CFTCClient, "get_history", lambda self, *a, **kw: broken)
+
+    cot = midas_app._fetch_cot_positions()
+    panel = midas_app.panel_health({"cot": cot})["detail"]["cot"]
+
+    assert cot["balances"] is False
+    assert panel["state"] == "degraded"
+    assert "balance" in panel["note"]
+
+
+def test_a_clean_report_balances(cot):
+    assert cot["balances"] is True

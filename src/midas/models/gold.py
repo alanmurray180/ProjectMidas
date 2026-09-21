@@ -99,6 +99,17 @@ class COTPosition:
         """Spread contracts held by the reportable categories."""
         return self.swap_spread + self.mm_spread + self.other_spread
 
+    @property
+    def balances(self) -> bool:
+        """Whether gross long equals gross short, as a real report does.
+
+        Every long is someone's short, so a snapshot that fails this was
+        mis-parsed — most likely a leg whose field name did not match and
+        read as zero, which looks on screen like a category holding no
+        position rather than like an error.
+        """
+        return self.total_long == self.total_short
+
     def pct_of_oi(self, contracts: int) -> float | None:
         """Express a contract count as a percentage of open interest."""
         if not self.open_interest:

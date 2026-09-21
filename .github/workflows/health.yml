@@ -28,11 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      # Field names are the failure mode this probe cannot otherwise see: a
-      # leg the dataset spells differently parses as zero and renders as a
-      # category that does not trade.  Printing what the API returns is how
-      # that gets caught against the published report.
-      - name: Probe CFTC field names
+      # Field names are the failure mode the panel probe cannot see: a leg
+      # the dataset spells differently parses as zero and renders as a
+      # category that does not trade.  This resolves every leg against a
+      # live row and checks the books balance.  Reporting only, like the
+      # step below it — it says so rather than failing the run.
+      - name: Check CFTC field mapping
+        continue-on-error: true
         env:
           FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
         run: python scripts/cot_probe.py
