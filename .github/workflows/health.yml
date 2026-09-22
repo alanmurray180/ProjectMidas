@@ -39,6 +39,15 @@ jobs:
           FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
         run: python scripts/cot_probe.py
 
+      # Temporary: measuring the proposed COT scorecard signals against
+      # forward gold returns before any of them reach the dashboard.  Comes
+      # out once the scorecard is settled.
+      - name: Backtest COT signals
+        continue-on-error: true
+        env:
+          FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
+        run: python scripts/cot_backtest.py
+
       - name: Probe data sources
         env:
           METALPRICEAPI_KEY: ${{ secrets.METALPRICEAPI_KEY }}
