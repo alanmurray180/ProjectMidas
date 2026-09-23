@@ -166,6 +166,9 @@ def test_panel_payload_splits_contracts_and_trends(cot):
     assert cot["mm_net_change_4w"] == "+4,000"
     assert cot["mm_net_change_52w"] == "+52,000"
     assert cot["context_label"] == "Crowded long"
+    # The crowding read is a share of open interest, and says so: 149,000
+    # net in 404,000 of open interest.
+    assert cot["context_current"] == "+36.9%"
     assert cot["history_weeks"] == 60
 
     labels = [c["label"] for c in cot["categories"]]
@@ -246,6 +249,7 @@ def test_card_renders_with_the_new_panel(cot):
     # The one-pager carries the same net and its trend, condensed.
     assert "Positioning (COT)" in html
     assert "Crowded long" in html
+    assert "MM Net %OI vs 52w range" in html
     assert html.index("Positioning (COT)") < html.index("Contracts by Side")
 
 

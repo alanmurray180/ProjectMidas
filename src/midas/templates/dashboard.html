@@ -655,8 +655,8 @@
             <div class="op-signal-net">{{ cot.mm_net }}</div>
             <div class="op-signal-label">{{ cot.context_label }}</div>
             <div class="op-signal-range">
-              Managed money net &middot; {{ cot.context_percentile }}th percentile
-              of {{ cot.context_weeks }}w
+              MM net {{ cot.context_current }} of OI &middot;
+              {{ cot.context_percentile }}th percentile of {{ cot.context_weeks }}w
             </div>
           </div>
           {{ op_change('Net, 1 week', cot.mm_net_trend['1w']) }}
@@ -972,9 +972,9 @@
             <div class="meta">4w {{ cot.mm_net_change_4w }} &middot; 13w {{ cot.mm_net_change_13w }} &middot; 52w {{ cot.mm_net_change_52w }}</div>
           </div>
           <div class="stat">
-            <div class="stat-label">MM Net vs {{ cot.context_weeks }}w range</div>
+            <div class="stat-label">MM Net %OI vs {{ cot.context_weeks }}w range</div>
             <div class="stat-value">{{ cot.context_label }}</div>
-            <div class="meta">{{ cot.context_percentile }}th percentile &middot; low {{ cot.context_low }} &middot; high {{ cot.context_high }}</div>
+            <div class="meta">{{ cot.context_current }} of OI &middot; {{ cot.context_percentile }}th percentile &middot; range {{ cot.context_low }} to {{ cot.context_high }}</div>
             <div class="cot-range"><span style="left: {{ cot.context_range_pct }}%;"></span></div>
           </div>
           <div class="stat">

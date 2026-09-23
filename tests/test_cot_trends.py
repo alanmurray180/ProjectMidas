@@ -115,16 +115,47 @@ def test_lookback_beyond_history_is_none_not_zero():
 
 
 def test_context_places_net_in_its_52_week_range():
+    """The range is read as a share of open interest, not in contracts."""
     nets = [100_000] * 51 + [250_000]
     data = COTTrends(_history(nets)).compute()
     ctx = data["context"]
 
-    assert ctx["current"] == 250_000
-    assert ctx["high"] == 250_000
-    assert ctx["low"] == 100_000
+    # Open interest in the fixture is the net plus 255,000, so the shares
+    # are 100/355 and 250/505.
+    assert ctx["current"] == pytest.approx(250_000 / 505_000 * 100, abs=0.01)
+    assert ctx["high"] == pytest.approx(250_000 / 505_000 * 100, abs=0.01)
+    assert ctx["low"] == pytest.approx(100_000 / 355_000 * 100, abs=0.01)
+    # The contract count is carried alongside, for callers that want it.
+    assert ctx["net"] == 250_000
     assert ctx["percentile"] == pytest.approx(99.04, abs=0.05)
     assert ctx["label"] == "Crowded long"
     assert ctx["range_pct"] == pytest.approx(100.0)
+
+
+def test_context_normalises_by_open_interest():
+    """A bigger net in a much bigger market is a smaller crowd, not a larger one.
+
+    Raw contracts would call the last report the most crowded of the year.
+    As a share of open interest it is the least, which is the reading that
+    was tested and the one the card shows.
+    """
+    history = _history([100_000] * 51)
+    # Same book, twice the market: other categories took the other side, so
+    # open interest doubles while managed money adds only 20,000.
+    history.append(
+        _position(
+            history[-1].report_date + timedelta(weeks=1),
+            mm_long=150_000,
+            mm_short=30_000,
+            open_interest=1_000_000,
+        )
+    )
+    ctx = COTTrends(history).compute()["context"]
+
+    assert ctx["net"] == 120_000
+    assert ctx["current"] == pytest.approx(12.0, abs=0.01)
+    assert ctx["percentile"] == pytest.approx(0.96, abs=0.05)
+    assert ctx["label"] == "Washed out"
 
 
 def test_context_window_ignores_older_history():
@@ -133,15 +164,46 @@ def test_context_window_ignores_older_history():
     ctx = COTTrends(_history(nets)).compute()["context"]
 
     assert ctx["weeks"] == 52
-    assert ctx["high"] == 120_000
+    assert ctx["high"] == pytest.approx(120_000 / 375_000 * 100, abs=0.01)
     assert ctx["label"] == "Crowded long"
+
+
+def test_context_bands_sit_at_the_20th_and_80th_percentile():
+    """Three states, with the bands the backtest settled on.
+
+    The share is monotonic in the net here, so a report's rank by net is
+    its rank by share, which keeps the fixtures readable.
+    """
+    rising = [100_000 + 1_000 * i for i in range(51)]
+    mid = COTTrends(_history(rising + [125_000])).compute()["context"]
+    assert mid["percentile"] == pytest.approx(50.0)
+    assert mid["label"] == "Mid-range"
+
+    # Exactly the 80th: 15 of 20 reports below it, one equal to it.
+    crowded = [100_000 + 1_000 * i for i in range(15)] + [150_000] + [
+        200_000,
+        210_000,
+        220_000,
+    ]
+    ctx = COTTrends(_history(crowded + [150_000])).compute()["context"]
+    assert ctx["percentile"] == pytest.approx(80.0)
+    assert ctx["label"] == "Crowded long"
+
+    # And the 20th, the other way up.
+    washed = [10_000, 20_000, 30_000] + [50_000] + [
+        100_000 + 1_000 * i for i in range(15)
+    ]
+    ctx = COTTrends(_history(washed + [50_000])).compute()["context"]
+    assert ctx["percentile"] == pytest.approx(20.0)
+    assert ctx["label"] == "Washed out"
 
 
 def test_washed_out_short_positioning():
     nets = [100_000] * 51 + [-60_000]
     ctx = COTTrends(_history(nets)).compute()["context"]
 
-    assert ctx["current"] == -60_000
+    assert ctx["net"] == -60_000
+    assert ctx["current"] == pytest.approx(-60_000 / 195_000 * 100, abs=0.01)
     assert ctx["label"] == "Washed out"
 
 
