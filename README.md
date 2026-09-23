@@ -29,6 +29,18 @@ in the long leg, the short leg and the net over 1, 4, 13 and 52 weekly
 reports, plus where managed-money net sits in its own 52-week range as a
 percentile.
 
+That crowding percentile is measured on managed-money net **as a share of
+open interest**, not in contracts: open interest is not constant across a
+year, so a contract percentile drifts to "crowded" whenever the market
+grows, whoever is holding it. The bands are the 20th and 80th percentile,
+giving three states — Crowded long, Mid-range, Washed out. Those came out
+of `scripts/cot_backtest.py`, which scores candidate COT signals against
+forward gold returns on 260 reports: the share-of-open-interest reading was
+the only candidate that separated at all, and of the thresholds swept,
+20/80 held up where 10/90 fired too rarely to trust and 30/70 left no
+effect. The label describes the crowd, not a recommendation — a crowded
+long is where the fuel for a liquidation sits, not a sell signal.
+
 The long and short legs are shown separately on purpose. A net that rises
 because shorts covered is a different market from one that rises because
 longs were added, and the net figure alone cannot tell them apart.

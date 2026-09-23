@@ -28,8 +28,11 @@ No lookahead: every signal at report *i* uses only reports up to *i*, and
 the entry price is the first close on or after the Friday the report is
 published — never the Tuesday the positions were taken.
 
-Run it from the **Check data sources** workflow; the CFTC and Yahoo hosts
-are not reachable from every environment::
+Kept as the record of how the card's crowding read was settled: of the four,
+only the crowding signal separated, so it is the only one on the dashboard,
+at the 20/80 thresholds this sweep favoured.  Re-run it before changing that
+read, from an environment that can reach the CFTC and Yahoo hosts — adding a
+step to the **Check data sources** workflow is the usual way::
 
     python scripts/cot_backtest.py
 """

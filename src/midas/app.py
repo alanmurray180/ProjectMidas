@@ -258,6 +258,18 @@ def _signed(value: int | None) -> str:
     return "0" if value == 0 else f"{value:+,}"
 
 
+def _signed_pct(value: float | None) -> str:
+    """Format a share of open interest with an explicit sign, or an em dash.
+
+    The crowding read is measured as a percentage of open interest, so the
+    range figures beside it must carry the unit: "+18.4%" and "18,400" are
+    not the same claim.
+    """
+    if value is None:
+        return "—"
+    return "0.0%" if value == 0 else f"{value:+.1f}%"
+
+
 def _cot_chart(series: list[float], w: int = 560, h: int = 90) -> dict:
     """Plot a COT series, keeping the zero line where the eye expects it.
 
@@ -416,8 +428,9 @@ def _cot_dataset_payload(dataset: str) -> dict:
         "context_percentile": (
             f"{ctx['percentile']:.0f}" if ctx["percentile"] is not None else "—"
         ),
-        "context_high": _signed(ctx["high"]),
-        "context_low": _signed(ctx["low"]),
+        "context_current": _signed_pct(ctx["current"]),
+        "context_high": _signed_pct(ctx["high"]),
+        "context_low": _signed_pct(ctx["low"]),
         "context_range_pct": f"{ctx['range_pct']:.1f}",
         "plot_weeks": plot_weeks,
         "plot_start": data["series"][-plot_weeks]["report_date"],
