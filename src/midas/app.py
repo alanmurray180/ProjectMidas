@@ -424,6 +424,7 @@ def _cot_dataset_payload(dataset: str) -> dict:
             for label in COT_LOOKBACK_LABELS
         },
         "context_label": ctx["label"],
+        "context_score": ctx["score"],
         "context_weeks": ctx["weeks"],
         "context_percentile": (
             f"{ctx['percentile']:.0f}" if ctx["percentile"] is not None else "—"
@@ -875,6 +876,44 @@ def _fetch_swiss_gold_trade() -> dict | None:
         return {"error": str(exc)}
 
 
+def _cot_other_signal(cot: dict | None) -> dict:
+    """The COT positioning index as one row of the Other column.
+
+    The index is the 52-week percentile of managed-money net as a share of
+    open interest — the read the backtest settled on — scored contrarian:
+    crowded long −1, washed out +1, anything between 0.
+    """
+    name = "COT positioning"
+    if not cot or cot.get("error"):
+        return {"name": name, "index": None, "label": "N/A", "score": None, "note": ""}
+    return {
+        "name": name,
+        "index": cot["context_percentile"],
+        "label": cot["context_label"],
+        "score": cot["context_score"],
+        "note": f"MM net {cot['context_current']} of OI · report {cot['report_date']}",
+    }
+
+
+def build_other(context: dict) -> dict:
+    """Collect the one-off signals for the one-pager's Other column.
+
+    Unlike the macro and ETF scorecards these are not one family, so they
+    are tallied rather than summed: a total would imply the signals are
+    commensurate, which they are not.  Each row is −1 / 0 / +1, or
+    ``None`` when its source is unavailable, which counts towards nothing.
+    """
+    signals = [_cot_other_signal(context.get("cot"))]
+    scored = [s["score"] for s in signals if s["score"] is not None]
+    return {
+        "signals": signals,
+        "bullish": sum(1 for v in scored if v > 0),
+        "bearish": sum(1 for v in scored if v < 0),
+        "neutral": sum(1 for v in scored if v == 0),
+        "unavailable": len(signals) - len(scored),
+    }
+
+
 def build_context(period: str = "30d", links: dict | None = None) -> dict:
     """Gather every dashboard panel for *period* into a template context.
 
@@ -901,6 +940,7 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
         "wgc": _fetch_wgc_commentary(),
         "swiss_trade": _fetch_swiss_gold_trade(),
     }
+    context["other"] = build_other(context)
     generated = datetime.now(timezone.utc)
     context.update(
         period=period,

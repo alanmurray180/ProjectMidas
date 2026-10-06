@@ -178,6 +178,7 @@ def test_context_bands_sit_at_the_20th_and_80th_percentile():
     mid = COTTrends(_history(rising + [125_000])).compute()["context"]
     assert mid["percentile"] == pytest.approx(50.0)
     assert mid["label"] == "Mid-range"
+    assert mid["score"] == 0
 
     # Exactly the 80th: 15 of 20 reports below it, one equal to it.
     crowded = [100_000 + 1_000 * i for i in range(15)] + [150_000] + [
@@ -188,6 +189,7 @@ def test_context_bands_sit_at_the_20th_and_80th_percentile():
     ctx = COTTrends(_history(crowded + [150_000])).compute()["context"]
     assert ctx["percentile"] == pytest.approx(80.0)
     assert ctx["label"] == "Crowded long"
+    assert ctx["score"] == -1
 
     # And the 20th, the other way up.
     washed = [10_000, 20_000, 30_000] + [50_000] + [
@@ -196,6 +198,7 @@ def test_context_bands_sit_at_the_20th_and_80th_percentile():
     ctx = COTTrends(_history(washed + [50_000])).compute()["context"]
     assert ctx["percentile"] == pytest.approx(20.0)
     assert ctx["label"] == "Washed out"
+    assert ctx["score"] == 1
 
 
 def test_washed_out_short_positioning():

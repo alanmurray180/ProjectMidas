@@ -12,6 +12,8 @@ only the weeks behind it answer.  This module turns the weekly series from
     weeks, for every category;
   * **context** — where managed-money net, as a share of open interest,
     sits in its own 52-week range: a percentile, the high and the low.
+    That percentile is the positioning index, and it carries a contrarian
+    −1 / 0 / +1 score for the one-pager's Other column.
 
 The CFTC publishes five years of weekly reports, so the history is fetched
 rather than accumulated: the trend is right from the first run, not after
@@ -205,14 +207,18 @@ class COTTrends:
 
         # Labels describe the crowd, not a recommendation: a crowded long is
         # where the fuel for a liquidation sits, not a sell signal on its own.
+        #
+        # The score is the same read from gold's side, contrarian: a crowd
+        # has to be unwound (−1), a washed-out market has little left to
+        # sell (+1).  No history scores zero rather than guessing.
         if pct is None:
-            label = "No history"
+            label, score = "No history", 0
         elif pct >= CROWDED_PCT:
-            label = "Crowded long"
+            label, score = "Crowded long", -1
         elif pct <= WASHED_PCT:
-            label = "Washed out"
+            label, score = "Washed out", 1
         else:
-            label = "Mid-range"
+            label, score = "Mid-range", 0
 
         spread = None if high is None or low is None else high - low
         return {
@@ -224,8 +230,10 @@ class COTTrends:
             "low": low,
             # The contract count behind the share, for callers that want it.
             "net": latest.mm_net,
+            # The percentile is the positioning index, 0–100.
             "percentile": pct,
             "label": label,
+            "score": score,
             # Position within the range, which is what a range bar draws.
             "range_pct": (
                 ((current - low) / spread * 100) if spread else 50.0

@@ -166,6 +166,7 @@ def test_panel_payload_splits_contracts_and_trends(cot):
     assert cot["mm_net_change_4w"] == "+4,000"
     assert cot["mm_net_change_52w"] == "+52,000"
     assert cot["context_label"] == "Crowded long"
+    assert cot["context_score"] == -1
     # The crowding read is a share of open interest, and says so: 149,000
     # net in 404,000 of open interest.
     assert cot["context_current"] == "+36.9%"
@@ -230,6 +231,7 @@ def test_card_renders_with_the_new_panel(cot):
     html = midas_app.render_context(
         {
             "cot": cot,
+            "other": midas_app.build_other({"cot": cot}),
             "period": "30d",
             "range_label": "30-day",
             "links": midas_app.STATIC_LINKS,
@@ -246,11 +248,35 @@ def test_card_renders_with_the_new_panel(cot):
     assert "cot_history.csv" in html
     # The totals row is the visible cross-check that the split balances.
     assert "All categories" in html
-    # The one-pager carries the same net and its trend, condensed.
-    assert "Positioning (COT)" in html
+    # The one-pager carries the positioning index in its Other column.
+    assert "COT positioning" in html
     assert "Crowded long" in html
+    assert "0 bullish &middot; 1 bearish &middot; 0 neutral" in html
     assert "MM Net %OI vs 52w range" in html
-    assert html.index("Positioning (COT)") < html.index("Contracts by Side")
+    assert html.index("COT positioning") < html.index("Contracts by Side")
+
+
+def test_other_column_scores_cot_contrarian_and_tallies(cot):
+    """Crowded long scores −1; the column tallies rather than sums."""
+    other = midas_app.build_other({"cot": cot})
+    sig = other["signals"][0]
+
+    assert sig["name"] == "COT positioning"
+    assert sig["index"] == cot["context_percentile"]
+    assert sig["label"] == "Crowded long"
+    assert sig["score"] == -1
+    assert (other["bullish"], other["bearish"], other["neutral"]) == (0, 1, 0)
+    assert other["unavailable"] == 0
+
+
+def test_other_column_survives_a_dead_cot_feed():
+    """An unavailable signal shows N/A and counts towards nothing."""
+    other = midas_app.build_other({"cot": {"error": "CFTC down"}})
+
+    assert other["signals"][0]["score"] is None
+    assert other["signals"][0]["label"] == "N/A"
+    assert (other["bullish"], other["bearish"], other["neutral"]) == (0, 0, 0)
+    assert other["unavailable"] == 1
 
 
 def test_panel_health_accepts_either_precise_filter(cot):

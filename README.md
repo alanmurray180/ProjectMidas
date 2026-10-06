@@ -70,9 +70,14 @@ short, and a parse that fails it degrades the panel instead of publishing.
 `scripts/cot_probe.py` resolves the mapping against a live row from both
 datasets and runs in the **Check data sources** workflow.
 
-The one-pager carries the condensed version — managed-money net, its
-crowding label, and the net change over 1, 4 and 13 weeks — so positioning
-is readable without scrolling to the card.
+The one-pager carries it as the first row of the **Other** column: the
+**COT positioning index**, which is that 52-week percentile (0–100), with
+its crowding label and a contrarian score — Crowded long −1, Washed out
++1, Mid-range 0. The Other column holds one-off signals that belong to no
+scorecard; each scores −1 / 0 / +1 and the column tallies them (bullish,
+bearish, neutral) rather than summing, since unrelated signals are not
+commensurate. Only the crowding read is scored because it was the only
+COT candidate that separated in `scripts/cot_backtest.py`.
 
 Two caveats worth remembering when reading the card:
 
