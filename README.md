@@ -79,6 +79,15 @@ bearish, neutral) rather than summing, since unrelated signals are not
 commensurate. Only the crowding read is scored because it was the only
 COT candidate that separated in `scripts/cot_backtest.py`.
 
+The second row is the **gold/silver ratio index**: the latest ratio's
+percentile within its own trailing year of daily closes (0–100), on a
+fixed window so it reads the same on the 30-day and 12-month views. It is
+scored as a regime signal at the same 20/80 bands — Silver leading (ratio
+low in its range, the pattern of a broad metals bull) +1, Silver lagging
+(ratio high, the pattern of risk-off or deflationary stress) −1,
+Mid-range 0. Unlike the COT read, neither the direction nor the bands
+have been backtested against forward gold returns yet.
+
 Two caveats worth remembering when reading the card:
 
 - Positions are as at **Tuesday's close** and published the **following

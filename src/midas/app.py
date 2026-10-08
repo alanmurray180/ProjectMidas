@@ -895,6 +895,35 @@ def _cot_other_signal(cot: dict | None) -> dict:
     }
 
 
+def _fetch_gsr_signal() -> dict:
+    """The gold/silver ratio index as one row of the Other column.
+
+    Fetched on its own fixed one-year window, so the score is the same on
+    the 30-day and 12-month views.
+    """
+    name = "Gold/silver ratio"
+    try:
+        from midas.clients.gold_silver import (
+            GSR_INDEX_RANGE,
+            GoldSilverRatioClient,
+            gsr_signal,
+        )
+
+        sig = gsr_signal(GoldSilverRatioClient().get_ratio(range_=GSR_INDEX_RANGE))
+    except Exception as exc:
+        log.warning("Gold/silver ratio signal unavailable: %s", exc)
+        return {"name": name, "index": None, "label": "N/A", "score": None, "note": ""}
+    return {
+        "name": name,
+        "index": f"{sig['percentile']:.0f}",
+        "label": sig["label"],
+        "score": sig["score"],
+        "note": (
+            f"{sig['current']:.1f}x · 1y range {sig['low']:.1f}–{sig['high']:.1f}x"
+        ),
+    }
+
+
 def build_other(context: dict) -> dict:
     """Collect the one-off signals for the one-pager's Other column.
 
@@ -903,7 +932,8 @@ def build_other(context: dict) -> dict:
     commensurate, which they are not.  Each row is −1 / 0 / +1, or
     ``None`` when its source is unavailable, which counts towards nothing.
     """
-    signals = [_cot_other_signal(context.get("cot"))]
+    signals = [_cot_other_signal(context.get("cot")), context.get("gsr_signal")]
+    signals = [s for s in signals if s is not None]
     scored = [s["score"] for s in signals if s["score"] is not None]
     return {
         "signals": signals,
@@ -940,6 +970,7 @@ def build_context(period: str = "30d", links: dict | None = None) -> dict:
         "wgc": _fetch_wgc_commentary(),
         "swiss_trade": _fetch_swiss_gold_trade(),
     }
+    context["gsr_signal"] = _fetch_gsr_signal()
     context["other"] = build_other(context)
     generated = datetime.now(timezone.utc)
     context.update(
