@@ -286,8 +286,9 @@
     .age-stale #age-rel,
     .age-very-stale #age-rel { font-weight: 600; }
     /* ---- One-pager (top-of-page summary) ------------------------------
-       Four columns: the three market numbers stacked, the two scorecards,
-       and a reserved slot for the physical scorecard.  Everything here is
+       Five columns: the three market numbers stacked, the two scorecards,
+       the Other column of one-off signals, and a reserved slot for the
+       physical scorecard.  Everything here is
        a condensed view of cards that still exist in full below. */
     .one-pager {
       max-width: 1400px;
@@ -377,12 +378,7 @@
     .op-signal.pos { border-left-color: var(--green); }
     .op-signal.neg { border-left-color: var(--red); }
     .op-signal-score { font-size: 2.2rem; font-weight: 700; line-height: 1; }
-    /* Positioning carries a contract count, not a −4..+4 score, so it gets
-       its own size: at 2.2rem "+175,663" wraps out of the column. */
-    .op-signal-net { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
     .op-signal-stacked { display: block; }
-    .op-signal.pos .op-signal-net { color: var(--green); }
-    .op-signal.neg .op-signal-net { color: var(--red); }
     .op-signal.pos .op-signal-score, .op-signal.pos .op-signal-label { color: var(--green); }
     .op-signal.neg .op-signal-score, .op-signal.neg .op-signal-label { color: var(--red); }
     .op-signal-score, .op-signal-label { color: var(--gold); }
@@ -419,6 +415,10 @@
     .op-score-state.op-pos-t { color: var(--green); }
     .op-score-state.op-neg-t { color: var(--red); }
     .op-score-state.op-nil-t { color: var(--text-muted); }
+    /* Other column: a signal's own index sits ahead of its label. */
+    .op-index { font-weight: 700; margin-right: 0.3rem; }
+    .op-index::after { content: "/100"; font-weight: 400; font-size: 0.7rem; color: var(--text-muted); }
+    .op-score-note { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.1rem; }
     .op-note { font-size: 0.7rem; color: var(--text-muted); margin-top: auto; padding-top: 0.4rem; }
     /* Last column — reserved */
     .op-col.op-placeholder {
@@ -513,14 +513,20 @@
     </div>
   {%- endmacro %}
 
-  {#- A named figure, coloured by direction.  op_score above is for the
-      scorecards' +1/-1 pills; this one carries a contract count. -#}
-  {% macro op_change(name, change) -%}
+  {#- One row of the Other column: a −1/0/+1 pill like op_score, plus the
+      signal's own index where it has one (the COT percentile, 0–100). -#}
+  {% macro op_indexed(sig) -%}
+    {% set tone = 'pos' if sig.score == 1 else ('neg' if sig.score == -1 else 'nil') %}
     <div class="op-score">
       <div class="op-score-text">
-        <div class="op-score-name">{{ name }}</div>
+        <div class="op-score-name">{{ sig.name }}</div>
+        <div class="op-score-state op-{{ tone }}-t">
+          {% if sig.index is not none %}<span class="op-index">{{ sig.index }}</span>{% endif %}
+          {{ sig.label }}
+        </div>
+        {% if sig.note %}<div class="op-score-note">{{ sig.note }}</div>{% endif %}
       </div>
-      <div class="op-pill {% if change.flat %}op-nil{% elif change.positive %}op-pos{% else %}op-neg{% endif %}">{{ change.text }}</div>
+      <div class="op-pill op-{{ tone }}">{% if sig.score is none %}&mdash;{% else %}{{ '+1' if tone == 'pos' else ('−1' if tone == 'neg' else '0') }}{% endif %}</div>
     </div>
   {%- endmacro %}
 
@@ -644,33 +650,24 @@
         {% endif %}
       </div>
 
-      <!-- Column 4: CFTC positioning, condensed from the card below -->
+      <!-- Column 4: one-off signals that belong to no scorecard -->
       <div class="op-col">
-        <div class="op-col-head">Positioning (COT)</div>
-        {% if cot and not cot.get('error') %}
-          {# Stacked rather than side by side like the scorecards' signal
-             block: a six-figure contract count and its label do not both
-             fit across a fifth of the row. #}
-          <div class="op-signal op-signal-stacked {% if cot.mm_net_positive %}pos{% else %}neg{% endif %}">
-            <div class="op-signal-net">{{ cot.mm_net }}</div>
-            <div class="op-signal-label">{{ cot.context_label }}</div>
-            <div class="op-signal-range">
-              MM net {{ cot.context_current }} of OI &middot;
-              {{ cot.context_percentile }}th percentile of {{ cot.context_weeks }}w
-            </div>
+        <div class="op-col-head">Other</div>
+        {% if other %}
+        {# Tallied, not summed: these are unrelated signals, and a total
+           would imply they are commensurate. #}
+        <div class="op-signal op-signal-stacked {% if other.bullish > other.bearish %}pos{% elif other.bearish > other.bullish %}neg{% endif %}">
+          <div class="op-signal-label">
+            {{ other.bullish }} bullish &middot; {{ other.bearish }} bearish &middot; {{ other.neutral }} neutral
           </div>
-          {{ op_change('Net, 1 week', cot.mm_net_trend['1w']) }}
-          {{ op_change('Net, 4 weeks', cot.mm_net_trend['4w']) }}
-          {{ op_change('Net, 13 weeks', cot.mm_net_trend['13w']) }}
-          <div class="op-note">
-            {{ cot.mm_long }} long vs {{ cot.mm_short }} short &middot;
-            report {{ cot.report_date }}, Tuesday close
-            {% if cot.combined and not cot.combined.get('error') %}
-              &middot; combined net {{ cot.combined.mm_net }}
-            {% endif %}
+          <div class="op-signal-range">
+            Independent signals, −1 / 0 / +1 each, not added
+            {% if other.unavailable %}&middot; {{ other.unavailable }} unavailable{% endif %}
           </div>
-        {% elif cot and cot.get('error') %}
-          <div class="error-msg">{{ cot.error }}</div>
+        </div>
+        {% for sig in other.signals %}
+          {{ op_indexed(sig) }}
+        {% endfor %}
         {% else %}
           <div class="error-msg">No data available</div>
         {% endif %}
