@@ -39,6 +39,13 @@ jobs:
           FINANCIAL_ANALYSIS_COT: ${{ secrets.FINANCIAL_ANALYSIS_COT }}
         run: python scripts/cot_probe.py
 
+      # Temporary: measuring the gold/silver ratio signal in the Other
+      # column against forward gold returns.  Comes out once its direction
+      # and bands are settled.
+      - name: Backtest gold/silver ratio signal
+        continue-on-error: true
+        run: python scripts/gsr_backtest.py
+
       - name: Probe data sources
         env:
           METALPRICEAPI_KEY: ${{ secrets.METALPRICEAPI_KEY }}
