@@ -16,6 +16,15 @@ class GoldPrice:
     unit: str = "troy_oz"
 
 
+# How far gross long and short may differ and still count as balanced, in
+# contracts.  The futures-only report balances exactly.  The combined
+# report folds in delta-adjusted options, rounded leg by leg, so its two
+# sides can drift by a contract or two (331,209 against 331,210 on
+# 29 September 2026).  A mis-parsed leg reads as zero and costs thousands,
+# so ten contracts keeps the check blind to rounding and nothing else.
+BALANCE_TOLERANCE = 10
+
+
 @dataclass
 class COTPosition:
     """CFTC Commitments of Traders positioning snapshot for gold futures."""
@@ -106,9 +115,11 @@ class COTPosition:
         Every long is someone's short, so a snapshot that fails this was
         mis-parsed — most likely a leg whose field name did not match and
         read as zero, which looks on screen like a category holding no
-        position rather than like an error.
+        position rather than like an error.  Allows the rounding the
+        combined report's delta-adjusted options carry; see
+        ``BALANCE_TOLERANCE``.
         """
-        return self.total_long == self.total_short
+        return abs(self.total_long - self.total_short) <= BALANCE_TOLERANCE
 
     def pct_of_oi(self, contracts: int) -> float | None:
         """Express a contract count as a percentage of open interest."""

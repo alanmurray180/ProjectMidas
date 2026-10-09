@@ -10,7 +10,7 @@ import respx
 
 from midas import app as midas_app
 from midas.clients.cftc import SOCRATA_BASE, CFTCClient
-from midas.models.gold import COTPosition
+from midas.models.gold import BALANCE_TOLERANCE, COTPosition
 
 
 def _socrata_row(day: str, mm_long: int, mm_short: int, market: str, oi: int) -> dict:
@@ -330,6 +330,20 @@ def test_unbalanced_parse_degrades_the_panel(monkeypatch):
 
 def test_a_clean_report_balances(cot):
     assert cot["balances"] is True
+
+
+def test_options_rounding_still_balances():
+    """The combined report's delta-adjusted legs can drift by a contract.
+
+    Seen live on 29 September 2026: 331,209 long against 331,210 short.
+    That is rounding, not a lost leg, and must not degrade the panel.
+    """
+    pos = _history()[-1]
+    pos.other_short += 1
+    assert pos.balances is True
+
+    pos.other_short += BALANCE_TOLERANCE
+    assert pos.balances is False
 
 
 def test_both_datasets_are_reported_side_by_side(cot):
