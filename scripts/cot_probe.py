@@ -31,6 +31,7 @@ import sys
 import httpx
 
 from midas.clients.cftc import GOLD_CONTRACT_MARKET_CODE, SOCRATA_FIELDS, _pick
+from midas.models.gold import BALANCE_TOLERANCE
 
 # Both disaggregated datasets, keyed by what the CFTC calls them.  The
 # dashboard reads the first; the second is what a published "Options and
@@ -103,8 +104,13 @@ def report(label: str, url: str, verbose: bool) -> bool:
     print(f"  gross short  {gross_short:>10,}")
     print(f"  spreads      {spreads:>10,}")
     print(f"  long+spreads {gross_long + spreads:>10,}   open interest {oi:,}")
-    balanced = gross_long == gross_short
-    print(f"  balances     {'yes' if balanced else 'NO — a leg is mis-parsed'}")
+    gap = gross_long - gross_short
+    balanced = abs(gap) <= BALANCE_TOLERANCE
+    if gap and balanced:
+        verdict = f"yes, within rounding ({gap:+,})"
+    else:
+        verdict = "yes" if balanced else "NO — a leg is mis-parsed"
+    print(f"  balances     {verdict}")
     if gross_long + spreads != oi:
         print("  note: long + spreads does not equal open interest")
     ok = ok and balanced
