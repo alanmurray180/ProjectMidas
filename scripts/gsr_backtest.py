@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Measure the gold/silver ratio signal against forward gold returns.
 
-The Other column scores the ratio's percentile within its trailing year:
-low in its range ("silver leading") +1, high ("silver lagging") −1.  That
-direction is the regime reading — a broad metals bull has silver leading,
-risk-off stress has it lagging — and the opposite case is just as easy to
-argue: a high ratio as gold rich, or as the safe-haven bid that favours
-gold.  This answers which, if either, the data supports.
+The question was which way round to score the ratio.  The usual regime
+reading says silver leading — a ratio low in its range — confirms a
+metals bull; the opposite case is a high ratio as the safe-haven bid that
+favours gold.  This tests the regime reading, and a +1 bucket that trails
+the baseline is the evidence for flipping it.
 
-Two candidates, each scored +1 / 0 / −1 from gold's perspective as the
-dashboard would score it:
+Two candidates, each scored +1 / 0 / −1 under the regime reading:
 
   1. Ratio level — percentile within the trailing 252 trading days, at a
      sweep of bands.  +1 when low in its range, −1 when high.
   2. Ratio trend — change over 4 and 13 weeks.  +1 when falling (silver
      outperforming), −1 when rising.
 
-A bucket that does *worse* than baseline when the dashboard says +1 is
-the evidence for flipping the sign, so read both ends.
+Kept as the record of how the Other column's ratio row was settled: over
+2017–2026 the regime reading was the wrong way round at 20/80 and 30/70
+alike, so the dashboard scores the level signal with the sign flipped —
+high ratio +1 — at 20/80.  The trend effect was too small to score.  Re-run
+it before changing that read, from an environment that can reach Yahoo —
+adding a step to the **Check data sources** workflow is the usual way.
 
 The same two caveats as ``scripts/cot_backtest.py`` apply and are printed
 rather than hidden:
@@ -30,10 +32,7 @@ so a 13-week forward return overlaps the next twelve.  The effective
 sample size is printed beside each bucket.
 
 No lookahead: the signal on day *i* uses closes up to and including day
-*i*, and the entry is the close of day *i + 1*.
-
-Run it from the **Check data sources** workflow; Yahoo is not reachable
-from every environment::
+*i*, and the entry is the close of day *i + 1*.  To run it::
 
     python scripts/gsr_backtest.py
 """
@@ -178,7 +177,7 @@ def main() -> int:
         print(f"Sampled weeks: {len(rows)}, {rows[0]['date']} to {rows[-1]['date']}")
         print("=" * 78)
         base = baseline(rows)
-        report_signal(rows, "level", "1. Ratio level (low in range = +1, as the dashboard scores it)", base)
+        report_signal(rows, "level", "1. Ratio level (low in range = +1, the regime reading)", base)
         # The trend signals do not depend on the bands, so print them once.
         if (lo, hi) == LEVEL_THRESHOLDS[1]:
             for weeks in TREND_WEEKS:
@@ -186,7 +185,8 @@ def main() -> int:
 
     print("\nRead 'vs base', not 'mean': gold rose across the sample, so raw")
     print("returns are positive almost everywhere.  If +1 trails base and −1")
-    print("beats it, the dashboard's sign is the wrong way round.")
+    print("beats it, the regime reading is the wrong way round — as it was")
+    print("over 2017–2026, which is why the dashboard flips it.")
     return 0
 
 

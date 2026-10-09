@@ -43,8 +43,9 @@ class GoldSilverRatioClient:
 # the score does not change with the view.
 GSR_INDEX_RANGE = "1y"
 
-# Same 20/80 bands as the COT index, for one read across the Other column.
-# Not backtested for the ratio: they are a starting point, not a finding.
+# Percentile bands, the same 20/80 as the COT index.  Settled by
+# scripts/gsr_backtest.py over ten years of weekly samples: 20/80 and
+# 30/70 separated about equally, 10/90 fired too rarely to trust.
 GSR_HIGH_PCT = 80.0
 GSR_LOW_PCT = 20.0
 
@@ -52,11 +53,16 @@ GSR_LOW_PCT = 20.0
 def gsr_signal(records: list[dict]) -> dict:
     """Score the latest ratio against its own trailing range.
 
-    The index is the ratio's percentile within *records* (0–100).  The
-    score reads it as a precious-metals regime signal: silver leading — a
-    ratio low in its range — is the pattern of a broad metals bull and
-    scores +1; silver lagging — a ratio high in its range — is the pattern
-    of risk-off or deflationary stress and scores −1.
+    The index is the ratio's percentile within *records* (0–100).  A ratio
+    high in its range — gold outrunning silver, the safe-haven bid — scores
+    +1; a ratio low in its range — silver outrunning gold, the speculative
+    end of the metals trade — scores −1.
+
+    That sign is the backtest's, not the textbook's.  The usual regime
+    reading has it the other way round (silver leading confirms a metals
+    bull), and over 2017–2026 it was wrong: gold trailed its baseline by
+    about 1.1% over 4 weeks and 2.7% over 13 after a low ratio, and beat
+    it by 0.7% and 1.3% after a high one.
 
     Raises ``ValueError`` on an empty series, for the caller to turn into
     an N/A row rather than a score of zero.
@@ -70,9 +76,9 @@ def gsr_signal(records: list[dict]) -> dict:
     pct = _percentile_rank(ratios, current)
 
     if pct >= GSR_HIGH_PCT:
-        label, score = "Silver lagging", -1
+        label, score = "Silver lagging", 1
     elif pct <= GSR_LOW_PCT:
-        label, score = "Silver leading", 1
+        label, score = "Silver leading", -1
     else:
         label, score = "Mid-range", 0
 

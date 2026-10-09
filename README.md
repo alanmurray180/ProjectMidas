@@ -81,12 +81,21 @@ COT candidate that separated in `scripts/cot_backtest.py`.
 
 The second row is the **gold/silver ratio index**: the latest ratio's
 percentile within its own trailing year of daily closes (0–100), on a
-fixed window so it reads the same on the 30-day and 12-month views. It is
-scored as a regime signal at the same 20/80 bands — Silver leading (ratio
-low in its range, the pattern of a broad metals bull) +1, Silver lagging
-(ratio high, the pattern of risk-off or deflationary stress) −1,
-Mid-range 0. Unlike the COT read, neither the direction nor the bands
-have been backtested against forward gold returns yet.
+fixed window so it reads the same on the 30-day and 12-month views. A
+ratio high in its range ("Silver lagging" — gold outrunning silver)
+scores +1, low in its range ("Silver leading") −1, between the 20th and
+80th percentile 0.
+
+That sign runs against the usual regime reading, in which silver leading
+confirms a metals bull. `scripts/gsr_backtest.py` tested both readings over
+ten years of weekly samples (2017–2026) and the data sided against it:
+after a low ratio, gold trailed its baseline by about 1.1% over 4 weeks
+and 2.7% over 13; after a high ratio it beat the baseline by 0.7% and
+1.3%. 20/80 and 30/70 bands gave much the same result; 10/90 fired too
+rarely to say much. The 4- and 13-week ratio trend pointed the same way
+but by only about 0.3%, too little to score. The usual caveat applies
+with force: at 13 weeks each bucket rests on roughly 7–11 independent
+windows.
 
 Two caveats worth remembering when reading the card:
 
